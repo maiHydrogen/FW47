@@ -1,0 +1,21 @@
+modules:
+  jira:issuePanel:
+    - key: fw47-hello-world-issue-panel
+      resource: main
+      resolver:
+        function: resolver
+      render: native
+      title: FW47
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+app:
+  runtime:
+    name: nodejs22.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/aa8d3260-46fe-414b-93e8-439fb94c4203
