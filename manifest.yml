@@ -1,15 +1,24 @@
 modules:
   jira:issuePanel:
-    - key: fw47-hello-world-issue-panel
+    - key: fw47-ui
       resource: main
       resolver:
         function: resolver
       render: native
-      title: FW47
+      title: Race Incident
+      viewportSize: medium
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+
+  webtrigger:
+    - key: race-radio-listener
+      function: receive-radio-data
+
   function:
     - key: resolver
-      handler: index.handler
+      handler: index.handler 
+    - key: receive-radio-data
+      handler: index.runRadioListener
+
 resources:
   - key: main
     path: src/frontend/index.jsx
@@ -19,3 +28,8 @@ app:
     memoryMB: 256
     architecture: arm64
   id: ari:cloud:ecosystem::app/aa8d3260-46fe-414b-93e8-439fb94c4203
+
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work

@@ -1,17 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Text } from '@forge/react';
-import { invoke } from '@forge/bridge';
+import ForgeReconciler, { Text, Strong, SectionMessage, Stack } from '@forge/react';
 
 const App = () => {
-  const [data, setData] = useState(null);
-  useEffect(() => {
-    invoke('getText', { example: 'my-invoke-variable' }).then(setData);
-  }, []);
   return (
-    <>
-      <Text>Hello world!</Text>
-      <Text>{data ? data : 'Loading...'}</Text>
-    </>
+    <Stack>
+      <SectionMessage title="Race Control Connected" appearance="info">
+        <Text>Waiting for Telemetry...</Text>
+      </SectionMessage>
+      <Text><Strong>System Status:</Strong> Online</Text>
+    </Stack>
   );
 };
 
