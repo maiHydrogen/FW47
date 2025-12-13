@@ -25,7 +25,6 @@ payload = {
 print(f"Radio Check: Sending message from {payload['driver']}...")
 
 try:
-    # 3. SEND TO JIRA
     response = requests.post(WEBTRIGGER_URL, json=payload)
     
     if response.status_code == 200:

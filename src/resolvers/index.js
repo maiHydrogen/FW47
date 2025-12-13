@@ -53,7 +53,7 @@ resolver.define('getTelemetry', async (req) => {
 
 export const handler = resolver.getDefinitions();
 
-// --- REAL MODE: CREATE TICKET ---
+// --- REAL MODE: CREATE TICKET WITH AI TRIAGE ---
 export const runRadioListener = async (req) => {
   let body;
   try {
@@ -62,18 +62,54 @@ export const runRadioListener = async (req) => {
     return { body: "Error: Invalid JSON", statusCode: 400 };
   }
 
+  // 1. Extract Data
   const { driver, message, lap, telemetry, eventType } = body;
-  console.log(`Received Radio from ${driver}: ${message}`);
+  console.log(`Received ${eventType || 'radio'} from ${driver}`);
 
-  const projectKey = "FW47";
+  const projectKey = "FW47"; 
 
-  let issueTypeName = "Race Incident"; // Default
+  // 2. --- AI TRIAGE ENGINE (The "ML" Logic) ---
+  const labels = ["RACE_CONTROL"]; // Default label
+  let issueTypeName = "Race Incident"; 
+  let priorityScore = 0; // 0 = Low, 100 = Critical
 
-
+  // Rule 1: Detect Event Type
   if (eventType === "pit_stop") {
-    issueTypeName = "Strategy Calls";
+    issueTypeName = "Strategy Calls"; 
+    labels.push("STRATEGY_OPS");
+  } else {
+    // Rule 2: Analyze Telemetry (The "Model")
+    if (telemetry) {
+      // Overheating Logic
+      if (telemetry.tire_temp > 105) {
+        labels.push("CRITICAL_HEAT");
+        priorityScore += 50;
+      }
+      // Brake Lockup Logic
+      if (telemetry.brake > 80) {
+        labels.push("TIRE_DAMAGE_RISK");
+        priorityScore += 30;
+      }
+      // Low Speed on Throttle (Engine Issue)
+      if (telemetry.throttle > 90 && telemetry.speed < 200 && telemetry.gear > 5) {
+        labels.push("POWER_UNIT_FAIL");
+        priorityScore += 80;
+      }
+    }
+    
+    // Rule 3: NLP on Message (Keyword Search)
+    const criticalWords = ["fail", "broken", "fire", "vibration", "no power"];
+    const msgLower = message.toLowerCase();
+    if (criticalWords.some(word => msgLower.includes(word))) {
+      labels.push("DRIVER_REPORTED_FAILURE");
+      priorityScore += 40;
+    }
   }
 
+  // Determine Visual Priority based on Score
+  const priorityIndicator = priorityScore > 60 ? "🔴 [URGENT]" : priorityScore > 30 ? "🟡 [WARN]" : "";
+
+  // 3. Create the Ticket with Labels
   try {
     const response = await api.asApp().requestJira(route`/rest/api/3/issue`, {
       method: "POST",
@@ -84,7 +120,9 @@ export const runRadioListener = async (req) => {
       body: JSON.stringify({
         fields: {
           project: { key: projectKey },
-          summary: `${driver}: ${message}`,
+          // We prepend the priority indicator to the title so it pops on the board
+          summary: `${priorityIndicator} ${driver}: ${message}`,
+          labels: labels, // <--- applying the AI tags
           description: {
             type: "doc",
             version: 1,
@@ -92,7 +130,7 @@ export const runRadioListener = async (req) => {
               {
                 type: "paragraph",
                 content: [
-                  { type: "text", text: `Lap ${lap} - $${(eventType || 'radio').toUpperCase()}` }
+                  { type: "text", text: `Lap ${lap} - ${(eventType || 'radio').toUpperCase()}` }
                 ]
               },
               {
@@ -104,15 +142,15 @@ export const runRadioListener = async (req) => {
               }
             ]
           },
-          issuetype: { name: issueTypeName }
+          issuetype: { name: issueTypeName } 
         }
       })
     });
 
     if (response.status === 201) {
       const data = await response.json();
-      console.log(`SUCCESS! ${eventType} Ticket: ${data.key}`);
-      return {
+      console.log(`SUCCESS! Ticket: ${data.key} | Labels: ${labels.join(", ")}`);
+      return { 
         body: JSON.stringify({ success: true, ticket: data.key }),
         statusCode: 200
       };

@@ -7,6 +7,12 @@
 node_modules/
 dist/
 
+# venv
+venv/
+
+# cache
+f1_cache/
+
 # Compiled Java class files
 *.class
 
