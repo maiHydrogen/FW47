@@ -11,8 +11,9 @@ time.sleep(1)
 
 # Mock Data: Driver reporting a vibration
 payload = {
-    "driver": "Carlos Sainz",
-    "lap": 21,
+    "eventType": "radio",
+    "driver": "Alex Albon",
+    "lap": 14,
     "message": "Front left feeling a bit off, possibly a damage to wing or suspension.",
     "telemetry": {
         "speed": 290,
@@ -37,3 +38,30 @@ try:
 
 except Exception as e:
     print(f"\n CONNECTION ERROR: {e}")
+
+
+# 3. SIMULATE A PIT STOP (New Event)
+print("\n Simulating Pit Stop: FW47 (Albon) - Lap 15")
+time.sleep(1)
+
+pit_payload = {
+    "eventType": "pit_stop", # <--- New Field
+    "driver": "Alex Albon",
+    "lap": 15,
+    "message": "Pit Stop Completed (Hard Tires fitted). Duration: 2.4s",
+    "telemetry": {
+        "pit_duration": 2.4,
+        "stationary_time": 2.1,
+        "tire_compound": "HARD"
+    }
+}
+
+print(f"Sending Pit Data...")
+try:
+    response = requests.post(WEBTRIGGER_URL, json=pit_payload)
+    if response.status_code == 200:
+        print("PIT STOP LOGGED: ", response.json().get('ticket'))
+    else:
+        print("FAILED:", response.text)
+except Exception as e:
+    print(f"CONNECTION ERROR: {e}")
