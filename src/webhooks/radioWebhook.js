@@ -1,96 +1,83 @@
-import { fetchDriverInfo } from '../resolvers/openf1.js';
-import { createJiraTicket } from '../utils/jiraHelper.js';
+import { processRadioMessage } from '../services/radioProcessor';
+import { fetchTeamRadio } from '../resolvers/openf1';
 
-export async function handleRadioWebhook(event) {
+export async function handleRadioWebhook(req) {
+  console.log('=== Manual Radio Trigger ===');
+  
+  // Parse the body if it's a string
+  let body;
   try {
-    console.log('Radio webhook triggered');
+    body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  } catch (error) {
+    console.error('Failed to parse request body:', error);
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        error: 'Invalid JSON in request body'
+      })
+    };
+  }
+  
+  const { session_key, driver_number, mode = 'latest' } = body;
+  
+  console.log(`Session: ${session_key}, Driver: ${driver_number}, Mode: ${mode}`);
+  
+  // Validate input
+  if (!session_key || !driver_number) {
+    console.error('Missing fields. Received body:', body);
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        error: 'Missing required fields: session_key and driver_number',
+        receivedBody: body
+      })
+    };
+  }
+  
+  try {
+    // Fetch radio messages from OpenF1
+    const radios = await fetchTeamRadio(session_key, driver_number);
     
-    const body = typeof event.body === 'string' ? event.body : JSON.stringify(event.body);
-    console.log('Parsing JSON string body');
-    const payload = JSON.parse(body);
-    console.log('Parsed payload:', payload);
-
-    const { 
-      session_key, 
-      driver_number, 
-      date, 
-      recording_url, 
-      telemetry,
-      incident_type = 'General Radio', // crash, track-limit, safety-car, etc.
-      severity = 'Medium', // Low, Medium, High
-      lap_number
-    } = payload;
-
-    console.log('Extracted values:', { session_key, driver_number, date, incident_type });
-
-    // Fetch driver info
-    let driverName = `Driver #${driver_number}`;
-    try {
-      console.log('Fetching driver info from:', `https://api.openf1.org/v1/drivers?session_key=${session_key}&driver_number=${driver_number}`);
-      const driverInfo = await fetchDriverInfo(session_key, driver_number);
-      driverName = driverInfo.full_name || driverName;
-      console.log('Driver name:', driverName);
-    } catch (error) {
-      console.error('Error fetching driver info:', error);
-      // Continue with fallback name
+    if (!radios || radios.length === 0) {
+      return {
+        statusCode: 404,
+        body: JSON.stringify({
+          error: 'No radio messages found for this session/driver',
+          session_key,
+          driver_number,
+          hint: 'Try a different session or driver number'
+        })
+      };
     }
-
-    // Build description
-    const description = `**Incident Type:** ${incident_type}
-**Radio Timestamp:** ${date}
-**Audio:** [Listen to Radio](${recording_url})
-
-**Telemetry Snapshot:**
-- Speed: ${telemetry.speed} km/h
-- RPM: ${telemetry.rpm}
-- Throttle: ${telemetry.throttle}%
-- Brake: ${telemetry.brake ? 'ON' : 'OFF'}
-- Gear: ${telemetry.n_gear}
-- DRS: ${telemetry.drs > 0 ? 'ON' : 'OFF'}
-
-**Action Required:** Analyze radio message and classify incident.`;
-
-    const labels = [
-      'radio-message', 
-      `driver-${driver_number}`, 
-      incident_type.toLowerCase().replace(/\s+/g, '-')
-    ];
     
-    if (lap_number) {
-      labels.push(`lap-${lap_number}`);
-    }
-
-    console.log('Creating Jira ticket...');
-    const ticket = await createJiraTicket({
-      summary: `${driverName} - ${incident_type}${lap_number ? ` (Lap ${lap_number})` : ''}`,
-      description,
-      labels,
-      priority: severity,
-      issueTypeName: 'Race Incident'
-    });
+    console.log(`Found ${radios.length} radio messages`);
     
-    console.log('Ticket created:', ticket.key);
+    // For dev/demo: process latest radio only
+    const radioToProcess = mode === 'latest' 
+      ? radios[radios.length - 1]  // Most recent
+      : radios[0];  // First one
+    
+    console.log(`Processing radio from ${radioToProcess.date}`);
+    
+    // Process the radio message
+    const result = await processRadioMessage(radioToProcess, session_key);
     
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        ticketKey: ticket.key,
-        ticketId: ticket.id,
-        data: {
-          driver_number,
-          driverName,
-          incident_type,
-          severity,
-          telemetry,
-          date,
-          lap_number
-        }
+        ticketKey: result.ticketKey,
+        ticketId: result.ticketId,
+        radioDate: radioToProcess.date,
+        recordingUrl: radioToProcess.recording_url || null,
+        telemetryFetched: result.telemetryFetched,
+        sessionInfo: result.sessionInfo,
+        totalRadiosAvailable: radios.length
       })
     };
     
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('Error processing radio:', error);
     return {
       statusCode: 500,
       body: JSON.stringify({ 

@@ -1,82 +1,154 @@
-import { fetchDriverInfo } from '../resolvers/openf1';
-import { createJiraTicket } from '../utils/jiraHelper';
+import { 
+  fetchDriverInfo, 
+  fetchPitStopData, 
+  fetchStintData,
+  fetchSessionInfo 
+} from '../resolvers/openf1.js';
+import { createJiraTicket } from '../utils/jiraHelper.js';
 
-export async function handlePitWebhook(req) {
-  console.log('Pit webhook triggered');
-  
+export async function handlePitWebhook(event) {
   try {
-    // Parse JSON body if it's a string
-    let payload = req.body;
-    if (typeof payload === 'string') {
-      console.log('Parsing JSON string body');
-      payload = JSON.parse(payload);
-    }
+    console.log('=== Pit Stop Webhook Triggered ===');
     
-    console.log('Parsed payload:', JSON.stringify(payload, null, 2));
-    
-    const {
-      session_key,
-      driver_number,
+    const body = typeof event.body === 'string' ? event.body : JSON.stringify(event.body);
+    const payload = JSON.parse(body);
+    console.log('Payload received:', JSON.stringify(payload, null, 2));
+
+    const { 
+      session_key, 
+      driver_number, 
       lap_number,
-      pit_duration,
-      date,
-      stint
+      date
     } = payload;
+
+    // Validate required fields
+    if (!session_key || !driver_number) {
+      throw new Error('Missing required fields: session_key and driver_number');
+    }
+
+    console.log(`\n=== Fetching Data from OpenF1 ===`);
     
-    console.log('Extracted values:', { session_key, driver_number, lap_number, pit_duration });
+    // Fetch all data from OpenF1 API
+    const [driverInfo, sessionInfo, pitData, stints] = await Promise.all([
+      fetchDriverInfo(driver_number),
+      fetchSessionInfo(session_key),
+      fetchPitStopData(session_key, driver_number, lap_number),
+      fetchStintData(session_key, driver_number)
+    ]);
     
-    // Try to fetch driver info, but don't fail if it errors
-    let driverName = `Driver #${driver_number}`;
-    try {
-      const driver = await fetchDriverInfo(session_key, driver_number);
-      if (driver && driver.broadcast_name) {
-        driverName = driver.broadcast_name;
-      }
-    } catch (err) {
-      console.warn('Could not fetch driver info, using fallback:', err.message);
+    console.log('Driver info:', driverInfo);
+    console.log('Session info:', sessionInfo);
+    console.log('Pit stop data:', pitData);
+    console.log('Stints:', stints);
+    
+    const driverName = driverInfo.full_name || `Driver #${driver_number}`;
+    
+    // Find current stint based on pit stop lap
+    const pitLapNumber = pitData?.lap_number || lap_number;
+    const currentStint = stints.find(s => 
+      pitLapNumber && pitLapNumber >= s.lap_start && (!s.lap_end || pitLapNumber <= s.lap_end)
+    );
+    
+    // Build description
+    let description = `*Pit Stop Analysis*\n\n`;
+    description += `*Driver:* ${driverName} (#${driver_number})\n`;
+    description += `*Team:* ${driverInfo.team_name || 'Unknown'}\n`;
+    
+    if (sessionInfo) {
+      description += `*Session:* ${sessionInfo.session_name} - ${sessionInfo.location}\n`;
+      description += `*Circuit:* ${sessionInfo.circuit_short_name}\n`;
+      description += `*Date:* ${new Date(sessionInfo.date_start).toLocaleDateString()}\n`;
+    } else {
+      description += `*Session Key:* ${session_key}\n`;
     }
     
-    const description = `**Pit Stop Details:**
-- Lap Number: ${lap_number}
-- Pit Duration: **${(pit_duration || 0).toFixed(1)}s**
-- Timestamp: ${date}
-
-**Tyre Strategy:**
-- Compound: **${stint?.compound || 'Unknown'}**
-- Tyre Age at Start: ${stint?.tyre_age_at_start || 'N/A'} laps
-- Stint Number: ${stint?.stint_number || 'N/A'}
-
-**Analysis:**
-View the FW47 panel for stint comparison and pit time benchmarks.`;
+    description += `*Lap:* ${pitLapNumber || 'N/A'}\n`;
+    description += `*Time:* ${new Date(date || Date.now()).toLocaleString()}\n\n`;
     
-    console.log('Creating Jira ticket...');
+    if (pitData) {
+      description += `*Pit Stop Details:*\n`;
+      description += `• Lap Number: ${pitData.lap_number}\n`;
+      description += `• Duration: ${pitData.pit_duration ? pitData.pit_duration.toFixed(2) + 's' : 'N/A'}\n`;
+      description += `• Timestamp: ${new Date(pitData.date).toLocaleTimeString()}\n\n`;
+    } else {
+      description += `_Pit stop data not available from OpenF1_\n\n`;
+    }
     
+    if (currentStint) {
+      description += `*Current Stint:*\n`;
+      description += `• Stint Number: ${currentStint.stint_number}\n`;
+      description += `• Tyre Compound: ${currentStint.compound}\n`;
+      description += `• Tyre Age at Start: ${currentStint.tyre_age_at_start} laps\n`;
+      description += `• Stint Laps: ${currentStint.lap_start} - ${currentStint.lap_end || 'ongoing'}\n\n`;
+    }
+    
+    if (stints.length > 0) {
+      description += `*Race Strategy (All Stints):*\n`;
+      stints.forEach(stint => {
+        const stintLength = stint.lap_end ? stint.lap_end - stint.lap_start + 1 : 'ongoing';
+        description += `• Stint ${stint.stint_number}: ${stint.compound} (${stintLength} laps, started lap ${stint.lap_start})\n`;
+      });
+    } else {
+      description += `_Stint data not available from OpenF1_\n`;
+    }
+
+    // Create labels
+    const labels = [
+      `driver-${driver_number}`,
+      'pitstop',
+      `session-${session_key}`
+    ];
+    
+    if (pitLapNumber) {
+      labels.push(`lap-${pitLapNumber}`);
+    }
+    
+    if (currentStint?.compound) {
+      labels.push(`tyre-${currentStint.compound.toLowerCase()}`);
+    }
+
+    if (sessionInfo?.session_type) {
+      labels.push(sessionInfo.session_type.toLowerCase().replace(' ', '-'));
+    }
+
+    console.log('\n=== Creating Jira Ticket ===');
+    
+    // Create ticket
     const ticket = await createJiraTicket({
-      summary: `${driverName} - Pit Stop Lap ${lap_number}`,
+      summary: `${driverName} - Pit Stop (Lap ${pitLapNumber || '?'})`,
       description,
-      labels: ['pit-stop', `driver-${driver_number}`, `lap-${lap_number}`],
-      priority: 'Low',
-      issueTypeName: 'Strategy Calls' 
+      labels,
+      priority: 'Medium',
+      issueTypeName: 'Strategy Calls'
     });
-    
-    console.log('Ticket created:', ticket.key);
-    
+
+    console.log(`✅ Ticket created: ${ticket.key}`);
+
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
         ticketKey: ticket.key,
-        message: 'Pit stop ticket created'
+        ticketId: ticket.id,
+        pitDuration: pitData?.pit_duration,
+        tyreCompound: currentStint?.compound,
+        stintsCount: stints.length,
+        dataFetched: {
+          driver: !!driverInfo,
+          session: !!sessionInfo,
+          pitStop: !!pitData,
+          stints: stints.length > 0
+        }
       })
     };
-    
+
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('❌ Error in pit stop webhook:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ 
-        error: error.message,
-        stack: error.stack 
+      body: JSON.stringify({
+        success: false,
+        error: error.message
       })
     };
   }
