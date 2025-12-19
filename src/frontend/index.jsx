@@ -1,132 +1,236 @@
 import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { 
-  Text, 
-  Strong, 
-  SectionMessage, 
-  Stack, 
-  Inline, 
-  Heading, 
-  Tag,
-  Spinner,
-  Link,
-  Icon
-} from '@forge/react';
 import { invoke } from '@forge/bridge';
 
-const App = () => {
+const FW47Panel = () => {
   const [telemetry, setTelemetry] = useState(null);
+  const [stints, setStints] = useState([]);
+  const [pitStops, setPitStops] = useState([]);
+  const [driverNumber, setDriverNumber] = useState(23); // Default: Albon
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    invoke('getTelemetry').then((data) => {
-      setTelemetry(data);
-      setLoading(false);
-    });
-  }, []);
+    loadData();
+  }, [driverNumber]);
 
-  if (loading) return <Spinner size="large" />;
-
-  if (!telemetry) {
-    return (
-      <SectionMessage title="No Signal" appearance="warning">
-        <Text>No telemetry data found.</Text>
-      </SectionMessage>
-    );
-  }
-
-  const isPitStop = telemetry.pit_duration !== undefined;
-
-  // --- SMART DOCS LOGIC ---
-  const getRelevantDocs = () => {
-    const docs = [];
-    
-    // Always include General Spec
-    docs.push({ title: "FW47 Technical Regulations 2025", url: "#" });
-
-    if (isPitStop) {
-      docs.push({ title: "Pit Stop Error Protocols", url: "#" });
-      docs.push({ title: "Wheel Gun Torque Specs", url: "#" });
-    } else {
-      // Radio / Incident Logic
-      if (telemetry.tire_temp > 100) {
-        docs.push({ title: "SOP: Active Cooling Configurations", url: "#" });
-      }
-      if (telemetry.brake > 80) {
-         docs.push({ title: "Brake Duct Tape Levels", url: "#" });
-      }
-      if (telemetry.speed < 200 && telemetry.throttle > 90) {
-         docs.push({ title: "PU Recovery Modes (Fail 8)", url: "#" });
-      }
-      if (telemetry.rpm > 11000) {
-        docs.push({ title: "Gearbox Sync Diagnostics", url: "#" });
-      }
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [telData, stintData, pitData] = await Promise.all([
+        invoke('getTelemetryData', { driverNumber }),
+        invoke('getStintData', { driverNumber }),
+        invoke('getPitStopComparison', { driverNumber })
+      ]);
+      
+      setTelemetry(telData);
+      setStints(stintData);
+      setPitStops(pitData);
+    } catch (error) {
+      console.error('Error loading data:', error);
     }
-    return docs;
+    setLoading(false);
   };
 
-  const relevantDocs = getRelevantDocs();
+  if (loading) {
+    return <div style={styles.container}>Loading FW47 data...</div>;
+  }
 
   return (
-    <Stack space="space.200">
-      {/* HEADER */}
-      <Inline space="space.100" alignBlock="center">
-        <Heading as="h2">FW47 Telemetry</Heading>
-        {isPitStop ? <Tag text="PIT STOP" color="blue" /> : <Tag text="INCIDENT" color="red" />}
-      </Inline>
+    <div style={styles.container}>
+      <header style={styles.header}>
+        <h2>FW47 Race Engineer</h2>
+        <select 
+          value={driverNumber} 
+          onChange={(e) => setDriverNumber(Number(e.target.value))}
+          style={styles.select}
+        >
+          <option value={23}>Alex Albon (#23)</option>
+          <option value={55}>Carlos Sainz (#55)</option>
+        </select>
+      </header>
 
-      {/* DASHBOARD GRID */}
-      {isPitStop ? (
-         <Stack space="space.200">
-           <SectionMessage 
-             appearance={telemetry.pit_duration < telemetry.field_avg_pit_time ? "success" : "warning"}
-             title={telemetry.pit_duration < telemetry.field_avg_pit_time ? "⚡ FAST STOP" : "🐢 SLOW STOP"}
-           >
-             <Heading as="h1">{telemetry.pit_duration}s</Heading>
-             <Text>vs Field Avg: {telemetry.field_avg_pit_time}s</Text>
-           </SectionMessage>
+      {/* Telemetry Section */}
+      <section style={styles.section}>
+        <h3 style={styles.sectionTitle}>📊 Current Telemetry</h3>
+        {telemetry ? (
+          <table style={styles.table}>
+            <tbody>
+              <tr>
+                <td style={styles.td}>Speed</td>
+                <td style={styles.tdValue}>{telemetry.speed || 'N/A'} km/h</td>
+              </tr>
+              <tr>
+                <td style={styles.td}>RPM</td>
+                <td style={styles.tdValue}>{telemetry.rpm || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td style={styles.td}>Throttle</td>
+                <td style={styles.tdValue}>{telemetry.throttle || 'N/A'}%</td>
+              </tr>
+              <tr>
+                <td style={styles.td}>Brake</td>
+                <td style={styles.tdValue}>{telemetry.brake === 100 ? '🔴 APPLIED' : '⚪ OFF'}</td>
+              </tr>
+              <tr>
+                <td style={styles.td}>Gear</td>
+                <td style={styles.tdValue}>{telemetry.n_gear || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td style={styles.td}>DRS</td>
+                <td style={styles.tdValue}>{getDRSStatus(telemetry.drs)}</td>
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <p>No telemetry data available</p>
+        )}
+      </section>
 
-           <Stack space="space.050">
-              <Text><Strong>Delta:</Strong></Text>
-              {telemetry.pit_duration < telemetry.field_avg_pit_time ? (
-                 <Tag text={`🟢 -${(telemetry.field_avg_pit_time - telemetry.pit_duration).toFixed(2)}s FASTER`} color="green" />
-              ) : (
-                 <Tag text={`🔴 +${(telemetry.pit_duration - telemetry.field_avg_pit_time).toFixed(2)}s SLOWER`} color="red" />
-              )}
-           </Stack>
-           <DataRow label="Compound" value={telemetry.tire_compound} />
-         </Stack>
-      ) : (
-         <Stack space="space.100">
-           <DataRow label="Speed" value={`${telemetry.speed} km/h`} />
-           <DataRow label="Tire Temp" value={`${telemetry.tire_temp}°C`} />
-           <DataRow label="Gear" value={`Run ${telemetry.gear}`} />
-           {telemetry.throttle && <DataRow label="Throttle" value={`${telemetry.throttle}%`} />}
-         </Stack>
-      )}
+      {/* Stint Analysis */}
+      <section style={styles.section}>
+        <h3 style={styles.sectionTitle}>🏁 Stint Analysis</h3>
+        {stints.length > 0 ? (
+          <div>
+            {stints.map((stint, idx) => (
+              <div key={idx} style={styles.stintCard}>
+                <strong>Stint {stint.stint_number}</strong>
+                <div>Compound: <span style={styles.badge}>{stint.compound}</span></div>
+                <div>Laps: {stint.lap_start} → {stint.lap_end} ({stint.lap_end - stint.lap_start + 1} laps)</div>
+                <div>Tyre age at start: {stint.tyre_age_at_start} laps</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p>No stint data available</p>
+        )}
+      </section>
 
-      {/* RELEVANT DOCS SECTION (NEW) */}
-      <Stack space="space.100">
-        <Heading as="h3">Recommended SOPs</Heading>
-        {relevantDocs.map((doc, index) => (
-          <Inline key={index} space="space.100">
-            <Text>📄</Text>
-            <Link href={doc.url} openNewTab>{doc.title}</Link>
-          </Inline>
-        ))}
-      </Stack>
-    </Stack>
+      {/* Pit Stop Comparison */}
+      <section style={styles.section}>
+        <h3 style={styles.sectionTitle}>⏱️ Pit Stop Times</h3>
+        {pitStops.length > 0 ? (
+          <div>
+            {pitStops.map((pit, idx) => (
+              <div key={idx} style={styles.pitCard}>
+                <div style={styles.pitLap}>Lap {pit.lap_number}</div>
+                <div style={styles.barContainer}>
+                  <div 
+                    style={{
+                      ...styles.bar,
+                      width: `${Math.min(pit.pit_duration * 3, 150)}px`,
+                      backgroundColor: pit.pit_duration < 25 ? '#0052CC' : '#FF5630'
+                    }}
+                  />
+                  <span style={styles.barLabel}>{pit.pit_duration.toFixed(1)}s</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p>No pit stop data available</p>
+        )}
+      </section>
+    </div>
   );
 };
 
-const DataRow = ({ label, value }) => (
-  <Inline space="space.between" alignBlock="center">
-    <Text><Strong>{label}</Strong></Text>
-    <Text>{value}</Text>
-  </Inline>
-);
+function getDRSStatus(drsValue) {
+  const drsMap = {
+    0: '⚪ OFF', 1: '⚪ OFF', 8: '🟡 Eligible', 10: '🟢 ON', 12: '🟢 ON', 14: '🟢 ON'
+  };
+  return drsMap[drsValue] || 'Unknown';
+}
 
-ForgeReconciler.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+const styles = {
+  container: {
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    padding: '20px',
+    maxWidth: '800px'
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '20px',
+    borderBottom: '2px solid #0052CC',
+    paddingBottom: '10px'
+  },
+  select: {
+    padding: '8px 12px',
+    fontSize: '14px',
+    borderRadius: '4px',
+    border: '1px solid #DFE1E6',
+    cursor: 'pointer'
+  },
+  section: {
+    marginBottom: '30px',
+    backgroundColor: '#F4F5F7',
+    padding: '15px',
+    borderRadius: '8px'
+  },
+  sectionTitle: {
+    marginTop: 0,
+    color: '#172B4D',
+    fontSize: '18px'
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse'
+  },
+  td: {
+    padding: '10px',
+    borderBottom: '1px solid #DFE1E6',
+    fontWeight: '500',
+    color: '#5E6C84'
+  },
+  tdValue: {
+    padding: '10px',
+    borderBottom: '1px solid #DFE1E6',
+    textAlign: 'right',
+    fontWeight: 'bold',
+    color: '#172B4D'
+  },
+  stintCard: {
+    backgroundColor: 'white',
+    padding: '12px',
+    marginBottom: '10px',
+    borderRadius: '4px',
+    borderLeft: '4px solid #0052CC'
+  },
+  badge: {
+    backgroundColor: '#0052CC',
+    color: 'white',
+    padding: '2px 8px',
+    borderRadius: '12px',
+    fontSize: '12px',
+    fontWeight: 'bold'
+  },
+  pitCard: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: '12px',
+    backgroundColor: 'white',
+    padding: '10px',
+    borderRadius: '4px'
+  },
+  pitLap: {
+    width: '80px',
+    fontWeight: 'bold',
+    color: '#172B4D'
+  },
+  barContainer: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center'
+  },
+  bar: {
+    height: '24px',
+    borderRadius: '4px',
+    marginRight: '10px'
+  },
+  barLabel: {
+    fontWeight: 'bold',
+    color: '#172B4D'
+  }
+};
+
+export default FW47Panel;

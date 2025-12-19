@@ -1,4 +1,16 @@
 modules:
+  rovo:agent:
+    - key: fw47-race-engineer
+      name: FW47 Race Engineer
+      prompt: |
+        You are the FW47 Race Engineer AI for Williams Racing. 
+        Analyze driver radio messages, telemetry data, and race incidents.
+        Calculate ticket priority based on telemetry patterns and radio content.
+        Search Confluence for relevant SOPs and technical documentation.
+        Suggest actionable solutions for race incidents.
+      description: AI assistant for Williams F1 race engineering - classifies
+        incidents, prioritizes tickets, and suggests solutions
+
   jira:issuePanel:
     - key: fw47-ui
       resource: main
@@ -6,22 +18,92 @@ modules:
         function: resolver
       render: native
       title: Race Incident
-      viewportSize: medium
+      viewportSize: large
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+    #scheduled:
+    # - key: poll-radio-messages
+    #  function: radio-poller
+    # interval: '30s'  # Poll every 30 seconds during session
+    #- key: poll-pit-stops
+    # function: pit-poller
+    # interval: '60s'  # Poll every minute
+
+  action:
+    - key: calculate-priority
+      name: Calculate Ticket Priority
+      function: rovo-actions
+      actionVerb: GET
+      description: Analyze telemetry and radio message to calculate incident priority
+      inputs:
+        telemetryJson:
+          title: Telemetry JSON
+          type: string
+          description: Telemetry snapshot at incident time
+          required: true
+        radioMessage:
+          title: Radio Message
+          type: string
+          description: Driver radio message transcript
+          required: false
+
+    - key: search-confluence-sops
+      name: Search Confluence SOPs
+      function: rovo-actions
+      actionVerb: GET
+      description: Search Confluence for relevant Standard Operating Procedures
+      inputs:
+        query:
+          title: Search Query
+          type: string
+          description: Keywords to search in Confluence
+          required: true
+        spaceKey:
+          title: Space Key
+          type: string
+          description: Confluence space to search (default FW47)
+          required: false
+
+    - key: suggest-solutions
+      name: Suggest Solutions
+      function: rovo-actions
+      actionVerb: GET
+      description: Provide recommended actions based on incident type
+      inputs:
+        incidentType:
+          title: Incident Type
+          type: string
+          description: Type of incident (e.g., brake-issue, power-unit, pit-slow)
+          required: true
+        telemetryJson:
+          title: Telemetry JSON
+          type: string
+          description: Telemetry context
+          required: false
 
   webtrigger:
-    - key: race-radio-listener
-      function: receive-radio-data
+    - key: radio-incident-webhook
+      function: handle-radio-webhook
+    - key: pit-stop-webhook
+      function: handle-pit-webhook
 
   function:
     - key: resolver
-      handler: index.handler 
-    - key: receive-radio-data
-      handler: index.runRadioListener
+      handler: index.handler
+    - key: radio-poller
+      handler: index.pollRadioMessages
+    - key: pit-poller
+      handler: index.pollPitStops
+    - key: rovo-actions
+      handler: index.rovoActionsHandler
+    - key: handle-radio-webhook
+      handler: index.handleRadioWebhook
+    - key: handle-pit-webhook
+      handler: index.handlePitWebhook
 
 resources:
   - key: main
     path: src/frontend/index.jsx
+
 app:
   runtime:
     name: nodejs22.x
@@ -33,3 +115,6 @@ permissions:
   scopes:
     - read:jira-work
     - write:jira-work
+    - read:confluence-content.all
+    - search:confluence
+    - storage:app
