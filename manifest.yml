@@ -89,10 +89,10 @@ modules:
   function:
     - key: resolver
       handler: index.handler
-    - key: radio-poller
-      handler: index.pollRadioMessages
-    - key: pit-poller
-      handler: index.pollPitStops
+    #- key: radio-poller
+     # handler: index.pollRadioMessages
+    #- key: pit-poller
+     # handler: index.pollPitStops
     - key: rovo-actions
       handler: index.rovoActionsHandler
     - key: handle-radio-webhook
@@ -112,6 +112,10 @@ app:
   id: ari:cloud:ecosystem::app/aa8d3260-46fe-414b-93e8-439fb94c4203
 
 permissions:
+  external:
+      fetch:
+        backend:
+          - 'https://api.openf1.org'
   scopes:
     - read:jira-work
     - write:jira-work

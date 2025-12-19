@@ -1,97 +1,102 @@
-import { fetchDriverInfo } from '../resolvers/openf1';
-import { createJiraTicket } from '../utils/jiraHelper';
+import { fetchDriverInfo } from '../resolvers/openf1.js';
+import { createJiraTicket } from '../utils/jiraHelper.js';
 
-export async function handleRadioWebhook(req) {
-  console.log('Radio webhook triggered');
-
+export async function handleRadioWebhook(event) {
   try {
-    // Parse JSON body if it's a string
-    let payload = req.body;
-    if (typeof payload === 'string') {
-      console.log('Parsing JSON string body');
-      payload = JSON.parse(payload);
-    }
+    console.log('Radio webhook triggered');
+    
+    const body = typeof event.body === 'string' ? event.body : JSON.stringify(event.body);
+    console.log('Parsing JSON string body');
+    const payload = JSON.parse(body);
+    console.log('Parsed payload:', payload);
 
-    console.log('Parsed payload:', JSON.stringify(payload, null, 2));
-
-    const {
-      session_key,
-      driver_number,
-      date,
-      recording_url,
-      telemetry
+    const { 
+      session_key, 
+      driver_number, 
+      date, 
+      recording_url, 
+      telemetry,
+      incident_type = 'General Radio', // crash, track-limit, safety-car, etc.
+      severity = 'Medium', // Low, Medium, High
+      lap_number
     } = payload;
 
-    console.log('Extracted values:', { session_key, driver_number, date });
+    console.log('Extracted values:', { session_key, driver_number, date, incident_type });
 
-    // Try to fetch driver info, but don't fail if it errors
+    // Fetch driver info
     let driverName = `Driver #${driver_number}`;
     try {
-      const driver = await fetchDriverInfo(session_key, driver_number);
-      if (driver && driver.broadcast_name) {
-        driverName = driver.broadcast_name;
-      }
-    } catch (err) {
-      console.warn('Could not fetch driver info, using fallback:', err.message);
+      console.log('Fetching driver info from:', `https://api.openf1.org/v1/drivers?session_key=${session_key}&driver_number=${driver_number}`);
+      const driverInfo = await fetchDriverInfo(session_key, driver_number);
+      driverName = driverInfo.full_name || driverName;
+      console.log('Driver name:', driverName);
+    } catch (error) {
+      console.error('Error fetching driver info:', error);
+      // Continue with fallback name
     }
 
-    // Format description
-    const description = `**Radio Timestamp:** ${date}
+    // Build description
+    const description = `**Incident Type:** ${incident_type}
+**Radio Timestamp:** ${date}
 **Audio:** [Listen to Radio](${recording_url})
 
 **Telemetry Snapshot:**
-- Speed: ${telemetry?.speed || 'N/A'} km/h
-- RPM: ${telemetry?.rpm || 'N/A'}
-- Throttle: ${telemetry?.throttle || 'N/A'}%
-- Brake: ${telemetry?.brake === 100 ? 'APPLIED' : 'OFF'}
-- Gear: ${telemetry?.n_gear || 'N/A'}
-- DRS: ${getDRSStatus(telemetry?.drs)}
+- Speed: ${telemetry.speed} km/h
+- RPM: ${telemetry.rpm}
+- Throttle: ${telemetry.throttle}%
+- Brake: ${telemetry.brake ? 'ON' : 'OFF'}
+- Gear: ${telemetry.n_gear}
+- DRS: ${telemetry.drs > 0 ? 'ON' : 'OFF'}
 
 **Action Required:** Analyze radio message and classify incident.`;
 
-    // Calculate labels
-    const labels = ['radio-message', `driver-${driver_number}`];
-    if (telemetry?.brake === 100 && telemetry?.speed > 250) {
-      labels.push('emergency-braking', 'high-priority');
+    const labels = [
+      'radio-message', 
+      `driver-${driver_number}`, 
+      incident_type.toLowerCase().replace(/\s+/g, '-')
+    ];
+    
+    if (lap_number) {
+      labels.push(`lap-${lap_number}`);
     }
 
     console.log('Creating Jira ticket...');
-
-    // Create ticket
     const ticket = await createJiraTicket({
-      summary: `${driverName} - Radio ${new Date(date).toLocaleTimeString()}`,
+      summary: `${driverName} - ${incident_type}${lap_number ? ` (Lap ${lap_number})` : ''}`,
       description,
       labels,
-      priority: 'Medium',
-      issueTypeName: "Race Incident"
+      priority: severity,
+      issueTypeName: 'Race Incident'
     });
-
+    
     console.log('Ticket created:', ticket.key);
-
+    
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
         ticketKey: ticket.key,
-        message: 'Radio incident ticket created',
+        ticketId: ticket.id,
+        data: {
+          driver_number,
+          driverName,
+          incident_type,
+          severity,
+          telemetry,
+          date,
+          lap_number
+        }
       })
     };
-
+    
   } catch (error) {
     console.error('Webhook error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({
+      body: JSON.stringify({ 
         error: error.message,
         stack: error.stack
       })
     };
   }
-}
-
-function getDRSStatus(drsValue) {
-  const drsMap = {
-    0: 'OFF', 1: 'OFF', 8: 'Eligible', 10: 'ON', 12: 'ON', 14: 'ON'
-  };
-  return drsMap[drsValue] || 'Unknown';
 }
