@@ -5,100 +5,68 @@ const Header = ({ context, lapTimes }) => {
   return (
     <Box 
       padding="space.300" 
-      backgroundColor="color.background.brand.bold.pressed"
+      backgroundColor="color.background.brand.bold"
       xcss={{
-        borderBottom: '3px solid #37BEFF'
+        borderBottom: '4px solid #00A0E2' // Williams Cyan Accent
       }}
     >
       <Stack space="space.200">
         {/* Top Bar: Title + Live Status */}
         <Inline space="space.200" alignBlock="center" spread="space-between">
           <Inline space="space.150" alignBlock="center">
-            <Heading size="large" color="color.text.inverse">
-              FW47 RACE OPERATIONS
+            <Heading size="medium">
+              <Text color="color.text.inverse">FW47 RACE OPERATIONS</Text>
             </Heading>
-            <Text size="small" color="color.text.inverse.subtle">
-              Powered by Williams Racing
-            </Text>
+            <Badge appearance="primary" text="WILLIAMS RACING" />
           </Inline>
           
-          {/* Live Indicator - Racing Style */}
-          <Inline space="space.100" alignBlock="center">
-            <Box 
-              xcss={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: '#00FF00',
-                animation: 'pulse 1.5s infinite'
-              }}
-            />
-            <Text size="small" color="color.text.inverse" weight="bold">
-              LIVE DATA
-            </Text>
-          </Inline>
+          {/* Live Indicator */}
+          <Lozenge appearance="success" isBold>● LIVE TELEMETRY</Lozenge>
         </Inline>
         
-        {/* Metrics Dashboard */}
+        {/* Metrics Dashboard - Full Width "Glass" Effect */}
         <Box 
-          padding="space.250" 
-          backgroundColor="color.background.neutral.bold"
-          xcss={{
-            borderRadius: '4px',
-            borderLeft: '4px solid #37BEFF'
-          }}
+          padding="space.300" 
+          backgroundColor="color.background.neutral"
+          borderRadius="border.radius.100"
         >
-          <Inline space="space.500" spread="space-between">
-            {/* Driver Info */}
-            <Stack space="space.050">
-              <Text size="small" color="color.text.subtlest" weight="bold">
-                DRIVER
-              </Text>
+          {/* Responsive Grid: Stacks on small screens, spreads on wide */}
+          <Inline space="space.400" spread="space-between" alignBlock="center" shouldWrap>
+            
+            {/* Driver */}
+            <Stack space="space.0">
+              <Text size="small" color="color.text.inverse" weight="bold">DRIVER</Text>
               <Inline space="space.100" alignBlock="center">
-                <Heading size="small">{context.driverName}</Heading>
-                <Badge 
-                  text={`#${context.driverNumber}`} 
-                  appearance="primary"
-                />
+                <Heading color="color.text.inverse" size="medium">{context.driverName}</Heading>
+                <Badge text={`#${context.driverNumber}`} appearance="primary" />
               </Inline>
             </Stack>
             
-            {/* Session Info */}
-            <Stack space="space.050">
-              <Text size="small" color="color.text.subtlest" weight="bold">
-                SESSION
-              </Text>
+            {/* Session */}
+            <Stack space="space.0">
+              <Text size="small" color="color.text.inverse" weight="bold">SESSION</Text>
               <Inline space="space.100" alignBlock="center">
-                <Text weight="bold" size="medium">{context.sessionName}</Text>
-                <Lozenge appearance="inprogress" isBold>
-                  {context.sessionType}
-                </Lozenge>
+                <Text color="color.text.inverse" size="medium" weight="medium">{context.sessionName}</Text>
+                <Lozenge>{context.sessionType}</Lozenge>
               </Inline>
             </Stack>
             
             {/* Circuit */}
-            <Stack space="space.050">
-              <Text size="small" color="color.text.subtlest" weight="bold">
-                CIRCUIT
-              </Text>
-              <Text weight="bold" size="medium">{context.location}</Text>
+            <Stack space="space.0">
+              <Text size="small" color="color.text.inverse" weight="bold">LOCATION</Text>
+              <Text color="color.text.inverse" size="medium" weight="medium">{context.location}</Text>
             </Stack>
             
-            {/* Best Lap - Highlight */}
+            {/* Best Lap Highlight */}
             {lapTimes?.bestLap && (
-              <Stack space="space.050">
-                <Text size="small" color="color.text.subtlest" weight="bold">
-                  BEST LAP
-                </Text>
-                <Text 
-                  weight="bold" 
-                  size="large"
-                  color="color.text.success"
-                >
-                  {lapTimes.bestLap.toFixed(3)}s
-                </Text>
-              </Stack>
+              <Box paddingInline="space.200" paddingBlock="space.100" backgroundColor="color.background.success.subtle" borderRadius="border.radius.100">
+                <Stack space="space.0">
+                  <Text size="small" color="color.text.inverse" weight="bold">FASTEST LAP</Text>
+                  <Text weight="bold" color="color.text.success" size="medium">{lapTimes.bestLap.toFixed(3)}s</Text>
+                </Stack>
+              </Box>
             )}
+
           </Inline>
         </Box>
       </Stack>
