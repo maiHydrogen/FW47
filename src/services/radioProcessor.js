@@ -43,8 +43,10 @@ export async function processRadioMessage(radio, sessionKey) {
     session,
     description,
     driverNumber: driver_number,
-    recordingUrl: recording_url
+    recordingUrl: recording_url,
+    sessionKey  // ← ADD THIS
   });
+
 
   console.log(`✅ Ticket created: ${ticket.key}`);
 
@@ -91,7 +93,7 @@ function buildRadioTicketDescription(data) {
 }
 
 async function createRadioTicket(data) {
-  const { driver, session, description, driverNumber } = data;
+  const { driver, session, description, driverNumber, sessionKey } = data;  // ← Add sessionKey
 
   const payload = {
     fields: {
@@ -110,6 +112,7 @@ async function createRadioTicket(data) {
       issuetype: { name: 'Race Incident' },
       labels: [
         `driver-${driverNumber}`,
+        `session-${sessionKey}`,  // ← ADD THIS
         'team-radio',
         'auto-generated'
       ]
