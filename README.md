@@ -52,6 +52,12 @@ The system "watches" the race for you.
 
 ### 1. Clone & Install
 ```bash
-git clone [https://github.com/maiHydrogen/FW47.git](https://github.com/maiHydrogen/FW47.git)
+git clone https://github.com/maiHydrogen/FW47.git
 cd FW47
 npm install
+forge register
+forge deploy
+forge install
+
+### Webhook Setup
+forge webtrigger
