@@ -17,7 +17,6 @@ const Header = ({ context, lapTimes }) => {
             <Heading size="medium">
               <Text color="color.text.inverse">FW47 RACE OPERATIONS</Text>
             </Heading>
-            <Badge appearance="primary" text="WILLIAMS RACING" />
           </Inline>
           
           {/* Live Indicator */}
@@ -38,7 +37,7 @@ const Header = ({ context, lapTimes }) => {
               <Text size="small" color="color.text.inverse" weight="bold">DRIVER</Text>
               <Inline space="space.100" alignBlock="center">
                 <Heading color="color.text.inverse" size="medium">{context.driverName}</Heading>
-                <Badge text={`#${context.driverNumber}`} appearance="primary" />
+                <Text color="color.text.inverse" size="medium">#{context.driverNumber}</Text>
               </Inline>
             </Stack>
             

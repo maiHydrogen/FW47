@@ -34,7 +34,6 @@ const OverviewTab = ({ context, lapTimes, pitStrategy }) => {
               <Stack space="space.100" alignInline="start">
                  <Text size="small" color="color.text.subtlest" weight="bold">PIT STOPS</Text>
                  <Heading size="large">{stats.pitStops}</Heading>
-                 <Badge appearance="primary" text="Strategy Active" />
               </Stack>
             </Box>
         </Inline>
@@ -42,7 +41,15 @@ const OverviewTab = ({ context, lapTimes, pitStrategy }) => {
         {/* Details Section */}
         <Box padding="space.300" backgroundColor="color.background.neutral" xcss={{ borderLeft: '4px solid #00A0E2' }}>
           <Stack space="space.200">
-            <Heading size="small">Session Context</Heading>
+            <Heading size="small">Driver's Info</Heading>
+            <Inline space="space.200" spread="space-between">
+                <Text weight="medium" color="color.text.subtle">Full Name</Text>
+                <Text weight="bold">{context.driverName}</Text>
+              </Inline>
+              <Inline space="space.200" spread="space-between">
+                <Text weight="medium" color="color.text.subtle">Car Number</Text>
+                <Text weight="bold">{context.driverNumber}</Text>
+              </Inline>
             <Inline spread="space-between">
                <Text color="color.text.subtle">Session ID:</Text>
                <Text>{context.sessionKey}</Text>

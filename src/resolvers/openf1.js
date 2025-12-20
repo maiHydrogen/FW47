@@ -1,12 +1,21 @@
 import api from '@forge/api';
 
-// Williams 2025 drivers
+// Williams 2025 drivers with Image URLs
 const WILLIAMS_DRIVERS_2025 = {
-  23: { full_name: 'Alex Albon', team_name: 'Williams', team_colour: '37BEFF' },
-  55: { full_name: 'Carlos Sainz', team_name: 'Williams', team_colour: '37BEFF' }
+  23: { 
+    full_name: 'Alex Albon', 
+    team_name: 'Williams', 
+    team_colour: '37BEFF',
+    headshot_url: 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/A/ALEALB01_Alexander_Albon/alealb01.png.transform/2col/image.png'
+  },
+  55: { 
+    full_name: 'Carlos Sainz', 
+    team_name: 'Williams', 
+    team_colour: '37BEFF',
+    headshot_url: 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/C/CARSAI01_Carlos_Sainz/carsai01.png.transform/2col/image.png'
+  }
 };
 
-// Fetch all 2025 sessions
 export async function fetch2025Sessions() {
   try {
     const response = await api.fetch('https://api.openf1.org/v1/sessions?year=2025');
@@ -15,14 +24,9 @@ export async function fetch2025Sessions() {
       session_key: session.session_key,
       session_name: session.session_name,
       date_start: session.date_start,
-      date_end: session.date_end,
-      gmt_offset: session.gmt_offset,
       session_type: session.session_type,
-      meeting_key: session.meeting_key,
       location: session.location,
-      country_name: session.country_name,
-      circuit_short_name: session.circuit_short_name,
-      year: session.year
+      circuit_short_name: session.circuit_short_name
     }));
   } catch (error) {
     console.error('Error fetching 2025 sessions:', error);
@@ -38,7 +42,11 @@ export async function fetchDriverInfo(driverNumber) {
   try {
     const response = await api.fetch(`https://api.openf1.org/v1/drivers?driver_number=${driverNumber}&session_key=latest`);
     const data = await response.json();
-    return data[0] || { full_name: `Driver #${driverNumber}`, team_name: 'Unknown' };
+    // Default fallback image if unknown
+    return { 
+        ...data[0], 
+        headshot_url: 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/unknown.png' 
+    } || { full_name: `Driver #${driverNumber}`, team_name: 'Unknown' };
   } catch (error) {
     return { full_name: `Driver #${driverNumber}`, team_name: 'Unknown' };
   }
@@ -53,7 +61,7 @@ export async function fetchLapInfo(sessionKey, driverNumber, lapNumber) {
     const response = await api.fetch(
       `https://api.openf1.org/v1/laps?session_key=${sessionKey}&driver_number=${driverNumber}&lap_number=${lapNumber}`
     );
-    
+
     // Safety check for HTTP errors
     if (!response.ok) {
       console.warn(`Lap API Error: ${response.status}`);
@@ -70,7 +78,7 @@ export async function fetchLapInfo(sessionKey, driverNumber, lapNumber) {
 
     // Now safe to access
     const lap = data[0];
-    
+
     return {
       lap_number: lap.lap_number,
       lap_duration: lap.lap_duration,
@@ -251,8 +259,10 @@ export async function fetchLapTelemetry(sessionKey, driverNumber, lapNumber) {
 }
 // Fetch pit stop data 
 // Fetch ALL pit stops for the session (for comparison)
+// CRITICAL FIX: Fetch ALL pit stops for the session (Field Average)
 export async function fetchSessionPitStops(sessionKey) {
   try {
+    // No driver_number filter = fetches everyone
     const response = await api.fetch(
       `https://api.openf1.org/v1/pit?session_key=${sessionKey}`
     );
@@ -263,7 +273,6 @@ export async function fetchSessionPitStops(sessionKey) {
     return [];
   }
 }
-
 export async function fetchPitStopData(sessionKey, driverNumber, lapNumber) {
   try {
     console.log(`Fetching pit stop for session=${sessionKey}, driver=${driverNumber}`);

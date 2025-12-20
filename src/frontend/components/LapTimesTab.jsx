@@ -4,14 +4,14 @@ import { Box, Stack, Inline, Heading, Text, Badge, EmptyState } from '@forge/rea
 const LapTimesTab = ({ context, lapTimes }) => {
   return (
     <Box padding="space.300">
-      <Stack space="space.300">
+      <Stack space="space.300" alignInline="stretch">
         <Heading size="medium">Lap Analysis</Heading>
         
         {!lapTimes || !lapTimes.laps?.length ? (
           <EmptyState header="No Lap Data" description="Timing data unavailable." />
         ) : (
-          <Stack space="space.200">
-            {/* Header */}
+          <Stack space="space.200" alignInline="stretch">
+            {/* Header Row */}
             <Box paddingInline="space.200">
                <Inline spread="space-between">
                   <Text size="small" weight="bold" color="color.text.subtlest">LAP</Text>
@@ -20,9 +20,9 @@ const LapTimesTab = ({ context, lapTimes }) => {
                </Inline>
             </Box>
 
-            {/* Scrollable List - Full Width */}
+            {/* Scrollable Data Area */}
             <Box xcss={{ width: '100%', maxHeight: '500px', overflowY: 'auto' }}>
-                <Stack space="space.100">
+                <Stack space="space.100" alignInline="stretch">
                     {lapTimes.laps.map((lap, idx) => {
                     const isBest = lapTimes.bestLap && lap.lap_duration === lapTimes.bestLap;
                     
@@ -31,12 +31,9 @@ const LapTimesTab = ({ context, lapTimes }) => {
                     
                     if (lapTimes.bestLap && lap.lap_duration) {
                         const diff = lap.lap_duration - lapTimes.bestLap;
-                        // Requirement #2: Red if positive (slower), Green if negative (faster - though rare vs best)
-                        // Note: vs Best Lap, delta is always positive or 0. 
-                        // If you compared to *previous* lap, it could be negative.
-                        // Standard F1 delta to best is Red (+).
                         delta = isBest ? '-0.000' : `+${diff.toFixed(3)}`;
-                        deltaColor = isBest ? "color.text.success" : "color.text.danger"; 
+                        // Green if negative (impossible vs best) or Best. Red if positive (slower).
+                        deltaColor = isBest ? "color.text.success" : "color.text.danger";
                     }
                     
                     return (
@@ -47,13 +44,17 @@ const LapTimesTab = ({ context, lapTimes }) => {
                           xcss={{ borderRadius: '4px', width: '100%' }}
                         >
                           <Inline spread="space-between" alignBlock="center">
-                              <Text weight="medium">Lap {lap.lap_number}</Text>
+                              <Box xcss={{ width: '60px' }}>
+                                <Text weight="medium">Lap {lap.lap_number}</Text>
+                              </Box>
                               
                               <Heading size="small">
                                   {typeof lap.lap_duration === 'number' ? `${lap.lap_duration.toFixed(3)}s` : 'PIT / OUT'}
                               </Heading>
                               
-                              <Text color={deltaColor} weight="bold">{delta}</Text>
+                              <Box xcss={{ width: '60px', textAlign: 'right' }}>
+                                <Text color={deltaColor} weight="bold" align="end">{delta}</Text>
+                              </Box>
                           </Inline>
                         </Box>
                     );
