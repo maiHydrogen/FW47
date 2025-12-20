@@ -11,7 +11,6 @@ export async function fetch2025Sessions() {
   try {
     const response = await api.fetch('https://api.openf1.org/v1/sessions?year=2025');
     const data = await response.json();
-
     return data.map(session => ({
       session_key: session.session_key,
       session_name: session.session_name,
@@ -36,18 +35,17 @@ export async function fetchDriverInfo(driverNumber) {
   if (WILLIAMS_DRIVERS_2025[driverNumber]) {
     return WILLIAMS_DRIVERS_2025[driverNumber];
   }
-
   try {
     const response = await api.fetch(`https://api.openf1.org/v1/drivers?driver_number=${driverNumber}&session_key=latest`);
     const data = await response.json();
     return data[0] || { full_name: `Driver #${driverNumber}`, team_name: 'Unknown' };
   } catch (error) {
-    console.error('Error fetching driver info:', error);
     return { full_name: `Driver #${driverNumber}`, team_name: 'Unknown' };
   }
 }
 
 // Fetch lap info (lap time, sectors)
+// FIXED: Robust fetchLapInfo with Array check
 export async function fetchLapInfo(sessionKey, driverNumber, lapNumber) {
   try {
     console.log(`Fetching lap info for session=${sessionKey}, driver=${driverNumber}, lap=${lapNumber}`);
@@ -55,24 +53,32 @@ export async function fetchLapInfo(sessionKey, driverNumber, lapNumber) {
     const response = await api.fetch(
       `https://api.openf1.org/v1/laps?session_key=${sessionKey}&driver_number=${driverNumber}&lap_number=${lapNumber}`
     );
-    const data = await response.json();
-
-    if (data.length === 0) {
-      console.log('No lap data found');
+    
+    // Safety check for HTTP errors
+    if (!response.ok) {
+      console.warn(`Lap API Error: ${response.status}`);
       return null;
     }
 
+    const data = await response.json();
+
+    // CRITICAL FIX: Ensure data is actually an Array before checking length
+    if (!Array.isArray(data) || data.length === 0) {
+      console.log('No lap data found or invalid API response format');
+      return null;
+    }
+
+    // Now safe to access
     const lap = data[0];
+    
     return {
       lap_number: lap.lap_number,
       lap_duration: lap.lap_duration,
       is_pit_out_lap: lap.is_pit_out_lap,
+      date_start: lap.date_start, // Ensure this is passed for telemetry
       duration_sector_1: lap.duration_sector_1,
       duration_sector_2: lap.duration_sector_2,
-      duration_sector_3: lap.duration_sector_3,
-      segments_sector_1: lap.segments_sector_1,
-      segments_sector_2: lap.segments_sector_2,
-      segments_sector_3: lap.segments_sector_3
+      duration_sector_3: lap.duration_sector_3
     };
   } catch (error) {
     console.error('Error fetching lap info:', error);
@@ -243,7 +249,21 @@ export async function fetchLapTelemetry(sessionKey, driverNumber, lapNumber) {
     return [];
   }
 }
-// Fetch pit stop data
+// Fetch pit stop data 
+// Fetch ALL pit stops for the session (for comparison)
+export async function fetchSessionPitStops(sessionKey) {
+  try {
+    const response = await api.fetch(
+      `https://api.openf1.org/v1/pit?session_key=${sessionKey}`
+    );
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Error fetching session pit stops:', error);
+    return [];
+  }
+}
+
 export async function fetchPitStopData(sessionKey, driverNumber, lapNumber) {
   try {
     console.log(`Fetching pit stop for session=${sessionKey}, driver=${driverNumber}`);

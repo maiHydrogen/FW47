@@ -116,6 +116,11 @@ permissions:
       fetch:
         backend:
           - 'https://api.openf1.org'
+
+      images:
+        - 'quickchart.io'
+        - '*.quickchart.io'
+
   scopes:
     - read:jira-work
     - write:jira-work

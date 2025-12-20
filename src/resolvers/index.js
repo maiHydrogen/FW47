@@ -6,10 +6,13 @@ import {
   fetchLapInfo,
   fetchStintData,
   fetchPitStopData,
+  fetchSessionPitStops,
   fetchSessionInfo
 } from './openf1.js';
 import api, { route } from '@forge/api';
-
+import { handleRadioWebhook } from '../webhooks/radioWebhook';
+import { handlePitWebhook } from '../webhooks/pitWebhook';
+import { handler as rovoActionsHandler } from '../rovo/actions';
 const resolver = new Resolver();
 
 // Get all 2025 sessions
@@ -119,93 +122,63 @@ resolver.define('get-telemetry-data', async (req) => {
 
 // Get pit strategy and comparisons
 resolver.define('get-pit-strategy', async (req) => {
-  try {
-    const { sessionKey, driverNumber } = req.payload;
-    
-    // Fetch stints for this driver
-    const stints = await fetchStintData(sessionKey, driverNumber);
-    
-    // Fetch all pit stops for comparison (both drivers)
-    const allPitStops = [];
-    for (const driver of [23, 55]) {
-      const response = await api.fetch(
-        `https://api.openf1.org/v1/pit?session_key=${sessionKey}&driver_number=${driver}`
-      );
-      const pits = await response.json();
-      if (Array.isArray(pits)) {
-        allPitStops.push(...pits);
-      }
-    }
-    
-    return {
-      stints,
-      allPitStops: allPitStops.sort((a, b) => a.lap_number - b.lap_number)
-    };
-    
-  } catch (error) {
-    console.error('Error fetching pit strategy:', error);
-    return { stints: [], allPitStops: [] };
-  }
-});
+  const { sessionKey, driverNumber, lapNumber } = req.payload;
+  
+  // 1. Fetch current driver data AND all session pits
+  const [stints, driverPits, allPits] = await Promise.all([
+    fetchStintData(sessionKey, driverNumber),
+    fetchPitStopData(sessionKey, driverNumber), // fetches single or array? Check implementation
+    fetchSessionPitStops(sessionKey)
+  ]);
 
+  // Handle potential single object return from fetchPitStopData if logic was specific
+  // But usually we want the LIST for history.
+  // NOTE: Your fetchPitStopData currently returns a SINGLE object. 
+  // For the strategy tab, you likely want the array history. 
+  // Let's assume you update fetchPitStopData to return array, OR we use allPits to filter.
+  
+  const myPits = allPits.filter(p => p.driver_number === driverNumber);
+
+  // 2. Filter out "Future" data (Time Travel Logic)
+  let filteredStints = stints;
+  let filteredDriverPits = myPits;
+
+  if (lapNumber) {
+    filteredStints = stints.filter(s => s.lap_start <= lapNumber);
+    filteredDriverPits = myPits.filter(p => p.lap_number <= lapNumber);
+  }
+
+  return {
+    stints: filteredStints,
+    driverPitStops: filteredDriverPits, 
+    allPitStops: allPits // Send full session data for "Average" calculation
+  };
+});
 // Get lap times with best lap for color coding
 resolver.define('get-lap-times', async (req) => {
-  try {
-    const { sessionKey, driverNumber } = req.payload;
-    
-    console.log(`Fetching lap times for session=${sessionKey}, driver=${driverNumber}`);
-    
-    // Add timeout wrapper
-    const fetchWithTimeout = async (url, timeoutMs = 8000) => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
-      
-      try {
-        const response = await api.fetch(url, { signal: controller.signal });
-        clearTimeout(timeout);
-        return response;
-      } catch (error) {
-        clearTimeout(timeout);
-        throw error;
-      }
-    };
-    
-    const response = await fetchWithTimeout(
-      `https://api.openf1.org/v1/laps?session_key=${sessionKey}&driver_number=${driverNumber}`
-    );
-    
-    if (!response.ok) {
-      console.error('Lap times API error:', response.status);
-      return null;
-    }
-    
-    const laps = await response.json();
-    
-    if (!Array.isArray(laps) || laps.length === 0) {
-      console.log('No lap data found');
-      return null;
-    }
-    
-    console.log(`Found ${laps.length} laps`);
-    
-    // Find best lap
-    const validLaps = laps.filter(l => l.lap_duration && !l.is_pit_out_lap);
-    const bestLap = validLaps.length > 0 
-      ? Math.min(...validLaps.map(l => l.lap_duration))
-      : null;
-    
-    return {
-      laps,
-      bestLap
-    };
-    
-  } catch (error) {
-    console.error('Error fetching lap times:', error.message);
-    // Return null instead of throwing - UI will show "No data"
-    return null;
-  }
-});
+  const { sessionKey, driverNumber, lapNumber } = req.payload;
+  
+  const response = await api.fetch(
+    `https://api.openf1.org/v1/laps?session_key=${sessionKey}&driver_number=${driverNumber}`
+  );
+  const allLaps = await response.json();
 
+  if (!Array.isArray(allLaps)) return { laps: [], bestLap: null };
+
+  // Filter out laps AFTER the incident
+  const validLaps = lapNumber 
+    ? allLaps.filter(l => l.lap_number <= lapNumber)
+    : allLaps;
+
+  // Recalculate best lap based on visible history only
+  const bestLap = validLaps.reduce((min, p) => 
+    p.lap_duration && p.lap_duration < min ? p.lap_duration : min, Infinity);
+
+  return {
+    laps: validLaps.sort((a, b) => b.lap_number - a.lap_number),
+    bestLap: bestLap === Infinity ? null : bestLap
+  };
+});
 
 // Legacy resolver for backward compatibility
 resolver.define('get-session-tickets', async (req) => {
@@ -262,3 +235,4 @@ resolver.define('get-session-tickets', async (req) => {
 });
 
 export const handler = resolver.getDefinitions();
+export { rovoActionsHandler, handleRadioWebhook, handlePitWebhook };
