@@ -6,6 +6,13 @@ import ForgeReconciler, {
 } from '@forge/react';
 import { invoke } from '@forge/bridge';
 
+// Import validators
+import { 
+  validateTelemetryData, 
+  validatePitStrategy, 
+  validateLapTimes 
+} from '../shared/validators';
+
 import Header from './components/Header';
 import OverviewTab from './components/OverviewTab';
 import TelemetryTab from './components/TelemetryTab';
@@ -43,14 +50,10 @@ const App = () => {
           invoke('get-lap-times', payload)
         ]);
         
-        // Normalize telemetry data
-        const normalizedTelemetry = Array.isArray(telemetryData) 
-          ? telemetryData 
-          : null;
-        
-        setTelemetry(normalizedTelemetry);
-        setPitStrategy(pitData);
-        setLapTimes(lapData);
+        // Apply validation before setting state
+        setTelemetry(validateTelemetryData(telemetryData));
+        setPitStrategy(validatePitStrategy(pitData));
+        setLapTimes(validateLapTimes(lapData));
         
       } catch (err) {
         console.error('Error loading data:', err);

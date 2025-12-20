@@ -14,21 +14,42 @@ const LapTimesTab = ({ context, lapTimes }) => {
           />
         ) : (
           <>
-            {/* Best Lap Highlight */}
+            {/* Best Lap Hero Section */}
             {lapTimes.bestLap && (
-              <Box padding="space.250" backgroundColor="color.background.success.bold">
+              <Box 
+                padding="space.300" 
+                backgroundColor="color.background.success.bold"
+                xcss={{
+                  borderRadius: '6px',
+                  border: '2px solid #00FF00'
+                }}
+              >
                 <Inline space="space.200" alignBlock="center" spread="space-between">
-                  <Stack space="space.050">
-                    <Text size="small">BEST LAP TIME</Text>
-                    <Heading size="large">{lapTimes.bestLap.toFixed(3)}s</Heading>
+                  <Stack space="space.100">
+                    <Text size="small" color="color.text.inverse.subtle">
+                      PERSONAL BEST LAP TIME
+                    </Text>
+                    <Heading size="xlarge" color="color.text.inverse">
+                      {lapTimes.bestLap.toFixed(3)}<Text size="medium">s</Text>
+                    </Heading>
                   </Stack>
-                  <Lozenge appearance="success" isBold>PERSONAL BEST</Lozenge>
+                  <Lozenge appearance="success" isBold>
+                    🏆 FASTEST
+                  </Lozenge>
                 </Inline>
               </Box>
             )}
             
-            {/* Lap Times List */}
-            <Box padding="space.250" backgroundColor="color.background.neutral">
+            {/* Lap Times Grid */}
+            <Box 
+              padding="space.250" 
+              backgroundColor="color.background.neutral.bold"
+              xcss={{
+                borderRadius: '4px',
+                maxHeight: '500px',
+                overflow: 'auto'
+              }}
+            >
               <Stack space="space.150">
                 {lapTimes.laps.map((lap, idx) => {
                   const isBest = lap.lap_duration === lapTimes.bestLap;
@@ -43,28 +64,58 @@ const LapTimesTab = ({ context, lapTimes }) => {
                       padding="space.200"
                       backgroundColor={
                         isBest ? "color.background.success" : 
-                        isPitLap ? "color.background.warning.subtle" : 
-                        "color.background.input"
+                        isPitLap ? "color.background.warning" : 
+                        idx % 2 === 0 ? "color.background.neutral" : "color.background.input"
                       }
+                      xcss={{
+                        borderRadius: '4px',
+                        borderLeft: '4px solid',
+                        borderColor: isBest ? '#00FF00' : isPitLap ? '#FFA500' : '#37BEFF'
+                      }}
                     >
                       <Inline space="space.200" spread="space-between" alignBlock="center">
-                        <Inline space="space.150" alignBlock="center">
-                          <Text weight={isBest ? "bold" : "medium"}>
-                            Lap {lap.lap_number}
-                          </Text>
+                        <Inline space="space.200" alignBlock="center">
+                          {/* Lap Number */}
+                          <Box xcss={{minWidth: '80px'}}>
+                            <Text 
+                              weight={isBest ? "bold" : "medium"}
+                              size="medium"
+                              color={isBest ? "color.text.inverse" : undefined}
+                            >
+                              LAP {lap.lap_number}
+                            </Text>
+                          </Box>
                           
-                          <Text weight={isBest ? "bold" : "regular"}>
-                            {lap.lap_duration ? `${lap.lap_duration.toFixed(3)}s` : 'No time'}
-                          </Text>
+                          {/* Lap Time */}
+                          <Box xcss={{minWidth: '120px'}}>
+                            <Text 
+                              weight={isBest ? "bold" : "regular"}
+                              size={isBest ? "large" : "medium"}
+                              color={isBest ? "color.text.inverse" : undefined}
+                            >
+                              {lap.lap_duration ? `${lap.lap_duration.toFixed(3)}s` : 'No time'}
+                            </Text>
+                          </Box>
                           
+                          {/* Delta */}
                           {delta && !isBest && (
-                            <Text size="small">+{delta}s</Text>
+                            <Text 
+                              size="small" 
+                              color={parseFloat(delta) < 0.5 ? "color.text.warning" : "color.text.subtle"}
+                            >
+                              +{delta}s
+                            </Text>
                           )}
                         </Inline>
                         
+                        {/* Status Badges */}
                         <Inline space="space.100">
-                          {isPitLap && <Badge text="PIT OUT" />}
-                          {isBest && <Badge text="BEST" appearance="added" />}
+                          {isPitLap && (
+                            <Badge text="PIT OUT" appearance="default" />
+                          )}
+                          {isBest && (
+                            <Badge text="⚡ BEST" appearance="added" />
+                          )}
                         </Inline>
                       </Inline>
                     </Box>
