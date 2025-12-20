@@ -163,13 +163,10 @@ export async function fetchTelemetryByTimestamp(sessionKey, driverNumber, timest
     return null;
   }
 }
-
-/// Fetch telemetry for specific lap (car data)
 export async function fetchLapTelemetry(sessionKey, driverNumber, lapNumber) {
   try {
     console.log(`Fetching telemetry for session=${sessionKey}, driver=${driverNumber}, lap=${lapNumber}`);
     
-    // First get lap info to get the date/time of the lap
     const lapInfo = await fetchLapInfo(sessionKey, driverNumber, lapNumber);
     
     if (!lapInfo) {
@@ -177,7 +174,6 @@ export async function fetchLapTelemetry(sessionKey, driverNumber, lapNumber) {
       return null;
     }
     
-    // Get the date from lap data
     const lapResponse = await api.fetch(
       `https://api.openf1.org/v1/laps?session_key=${sessionKey}&driver_number=${driverNumber}&lap_number=${lapNumber}`
     );
@@ -189,71 +185,48 @@ export async function fetchLapTelemetry(sessionKey, driverNumber, lapNumber) {
     }
     
     const lapStartTime = lapData[0].date_start;
-    console.log('Lap start time:', lapStartTime);
-    
-    // Calculate time window (lap duration + 5 seconds buffer)
     const startDate = new Date(lapStartTime);
     const endDate = new Date(startDate.getTime() + ((lapInfo.lap_duration || 90) + 5) * 1000);
     
     console.log('Querying telemetry window:', startDate.toISOString(), 'to', endDate.toISOString());
     
-    // Fetch car data for the specific time window
     const response = await api.fetch(
       `https://api.openf1.org/v1/car_data?session_key=${sessionKey}&driver_number=${driverNumber}&date>=${startDate.toISOString()}&date<=${endDate.toISOString()}`
     );
     
     console.log('OpenF1 response status:', response.status);
     const data = await response.json();
-    console.log('Data type:', typeof data, 'Is array:', Array.isArray(data));
     
     // Handle error responses
     if (!Array.isArray(data)) {
-      if (data.detail) {
-        console.log('OpenF1 API error:', data.detail);
-      }
-      return null;
+      console.log('OpenF1 API error:', data.detail || 'Unknown error');
+      return [];  // Return empty array instead of null
     }
     
     if (data.length === 0) {
       console.log('No car data available for this time window');
-      return null;
+      return [];  // Return empty array instead of null
     }
     
-    console.log(`Processing ${data.length} car data points`);
+    console.log(`Returning ${data.length} raw telemetry data points`);
     
-    // Calculate statistics from all data points
-    const speeds = data.map(d => d.speed || 0).filter(s => s > 0);
-    const rpms = data.map(d => d.rpm || 0).filter(r => r > 0);
-    const throttles = data.map(d => d.throttle || 0);
-    const brakes = data.map(d => d.brake || 0);
-    const gears = data.map(d => d.n_gear || 0).filter(g => g > 0);
-    const drsValues = data.map(d => d.drs || 0);
-    
-    const avg = (arr) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-    const max = (arr) => arr.length > 0 ? Math.max(...arr) : 0;
-    
-    const telemetry = {
-      speed_avg: Math.round(avg(speeds)),
-      speed_max: Math.round(max(speeds)),
-      rpm_avg: Math.round(avg(rpms)),
-      rpm_max: Math.round(max(rpms)),
-      throttle_avg: Math.round(avg(throttles)),
-      throttle_max: Math.round(max(throttles)),
-      brake_avg: Math.round(avg(brakes)),
-      brake_max: Math.round(max(brakes)),
-      n_gear_max: Math.round(max(gears)),
-      drs_used: drsValues.some(d => d > 0),
-      data_points: data.length
-    };
-    
-    console.log('Telemetry calculated:', telemetry);
-    return telemetry;
+    // Return raw data points with standardized field names
+    return data.map(point => ({
+      speed: point.speed || 0,
+      rpm: point.rpm || 0,
+      throttle: point.throttle || 0,
+      brake: point.brake || 0,
+      gear: point.n_gear || 0,
+      drs: point.drs || 0,
+      date: point.date
+    }));
     
   } catch (error) {
     console.error('Error fetching telemetry:', error);
-    return null;
+    return [];  // Return empty array on error
   }
 }
+
 
 
 // Fetch pit stop data
