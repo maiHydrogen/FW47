@@ -2,8 +2,7 @@
 
 > **Codegeist 2025 Submission** | **Theme:** Atlassian Williams Racing
 
-![Banner Image](https://images.unsplash.com/photo-1534079822877-6644f776268f?q=80&w=2836&auto=format&fit=crop) 
-*(Tip: Replace this link with a screenshot of your actual Jira Dashboard)*
+<img width="2816" height="1536" alt="FW47_logo" src="https://github.com/user-attachments/assets/5196f9f9-95d8-48f8-ab93-3e85c9895309" />
 
 ## 🏁 The Problem
 In Formula 1, milliseconds matter. Race Engineers process gigabytes of telemetry data, radio comms, and tire strategy in real-time. 
