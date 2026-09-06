@@ -1,20 +1,5 @@
 import api from '@forge/api';
-
-// Williams 2025 drivers with Image URLs
-const WILLIAMS_DRIVERS_2025 = {
-  23: { 
-    full_name: 'Alex Albon', 
-    team_name: 'Williams', 
-    team_colour: '37BEFF',
-    headshot_url: 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/A/ALEALB01_Alexander_Albon/alealb01.png.transform/2col/image.png'
-  },
-  55: { 
-    full_name: 'Carlos Sainz', 
-    team_name: 'Williams', 
-    team_colour: '37BEFF',
-    headshot_url: 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/C/CARSAI01_Carlos_Sainz/carsai01.png.transform/2col/image.png'
-  }
-};
+import { getTeamDriver } from '../config/team.js';
 
 export async function fetch2025Sessions() {
   try {
@@ -36,8 +21,9 @@ export async function fetch2025Sessions() {
 
 // Fetch driver info
 export async function fetchDriverInfo(driverNumber) {
-  if (WILLIAMS_DRIVERS_2025[driverNumber]) {
-    return WILLIAMS_DRIVERS_2025[driverNumber];
+  const teamDriver = getTeamDriver(driverNumber);
+  if (teamDriver) {
+    return teamDriver;
   }
   try {
     const response = await api.fetch(`https://api.openf1.org/v1/drivers?driver_number=${driverNumber}&session_key=latest`);

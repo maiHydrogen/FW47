@@ -1,9 +1,10 @@
 import api, { route } from '@forge/api';
+import { JIRA_PROJECT_KEY, JIRA_ISSUE_TYPES } from '../config/team.js';
 
-export async function createJiraTicket({ summary, description, labels = [], priority = 'Medium' }) {
+export async function createJiraTicket({ summary, description, labels = [], priority = 'Medium', issueType = JIRA_ISSUE_TYPES.task }) {
   try {
-    const projectKey = 'FW47';
-    
+    const projectKey = JIRA_PROJECT_KEY;
+
     const issueData = {
       fields: {
         project: { key: projectKey },
@@ -23,7 +24,7 @@ export async function createJiraTicket({ summary, description, labels = [], prio
             }
           ]
         },
-        issuetype: { name: 'Task' },
+        issuetype: { name: issueType },
         labels: labels,
         priority: { name: priority }
       }
@@ -44,7 +45,7 @@ export async function createJiraTicket({ summary, description, labels = [], prio
       
       // 🔥 NEW: Better error messages
       if (response.status === 404 || errorText.includes('project')) {
-        throw new Error(`Project "${projectKey}" not found. Please create a Jira project named "FW47" first.`);
+        throw new Error(`Project "${projectKey}" not found. Please create a Jira project named "${projectKey}" first.`);
       }
       
       if (response.status === 401) {

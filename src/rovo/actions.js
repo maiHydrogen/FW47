@@ -60,12 +60,30 @@ async function calculatePriority(payload) {
   };
 }
 
+// Escape a value for safe use inside a double-quoted CQL string literal.
+// Without this, a query containing a `"` can close the literal early and
+// inject arbitrary CQL clauses (e.g. `text~"x" OR space="OTHER"`).
+function escapeCql(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 async function searchConfluenceDocs(payload) {
   const { query, spaceKey = 'FW47' } = payload;
-  
+
+  if (!query || typeof query !== 'string') {
+    return { documents: [], error: 'A search query is required' };
+  }
+
+  // Space keys are short identifiers (letters/digits/underscore/hyphen) -
+  // reject anything else instead of trying to escape it, since it's also
+  // used unquoted in raw CQL.
+  const safeSpaceKey = /^[A-Za-z0-9_-]+$/.test(spaceKey) ? spaceKey : 'FW47';
+  const safeQuery = escapeCql(query).slice(0, 200);
+
   try {
+    const cql = `space="${safeSpaceKey}" AND text~"${safeQuery}"`;
     const response = await api.asApp().requestConfluence(
-      route`/wiki/rest/api/content/search?cql=space=${spaceKey} AND text~"${query}"&limit=5`,
+      route`/wiki/rest/api/content/search?cql=${cql}&limit=5`,
       { headers: { 'Accept': 'application/json' } }
     );
     

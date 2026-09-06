@@ -1,11 +1,6 @@
 import { fetchTelemetryByTimestamp, fetchSessionInfo, fetchDriverInfo } from '../resolvers/openf1';
 import api, { route } from '@forge/api';
-
-const WILLIAMS_DRIVERS = {
-  23: { name: 'Alex Albon', acronym: 'ALB' },
-  2: { name: 'Logan Sargeant', acronym: 'SAR' },
-  55: { name: 'Carlos Sainz', acronym: 'SAI' }
-};
+import { getTeamDriver, JIRA_PROJECT_KEY, JIRA_ISSUE_TYPES } from '../config/team.js';
 
 export async function processRadioMessage(radio, sessionKey) {
   const { date, driver_number, recording_url } = radio;
@@ -19,10 +14,10 @@ export async function processRadioMessage(radio, sessionKey) {
     fetchSessionInfo(sessionKey)
   ]);
 
-  const driver = WILLIAMS_DRIVERS[driver_number] || {
-    name: `Driver ${driver_number}`,
-    acronym: `D${driver_number}`
-  };
+  const teamDriver = getTeamDriver(driver_number);
+  const driver = teamDriver
+    ? { name: teamDriver.full_name, acronym: teamDriver.acronym }
+    : { name: `Driver ${driver_number}`, acronym: `D${driver_number}` };
 
   console.log(`Session: ${session?.session_name || 'Unknown'}`);
   console.log(`Telemetry available: ${!!telemetry}`);
@@ -97,7 +92,7 @@ async function createRadioTicket(data) {
 
   const payload = {
     fields: {
-      project: { key: 'FW47' },
+      project: { key: JIRA_PROJECT_KEY },
       summary: `Radio: ${driver.acronym} - ${session?.session_name || 'Session'}`,
       description: {
         type: 'doc',
@@ -109,7 +104,7 @@ async function createRadioTicket(data) {
           }
         ]
       },
-      issuetype: { name: 'Race Incident' },
+      issuetype: { name: JIRA_ISSUE_TYPES.incident },
       labels: [
         `driver-${driverNumber}`,
         `session-${sessionKey}`,  // ← ADD THIS
