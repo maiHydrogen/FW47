@@ -1,4 +1,5 @@
 import api, { route } from '@forge/api';
+import { detectAnomalies } from '../services/anomalyDetection.js';
 
 export const handler = async (req) => {
   const { actionKey, payload } = req;
@@ -23,41 +24,17 @@ export const handler = async (req) => {
 
 async function calculatePriority(payload) {
   const { telemetryJson, radioMessage } = payload;
-  
+
   let telemetry = {};
   try {
     telemetry = JSON.parse(telemetryJson || '{}');
   } catch (e) {
     console.error('Invalid telemetry JSON');
   }
-  
-  let priority = 'Low';
-  const reasons = [];
-  
-  // Telemetry-based priority
-  if (telemetry.brake === 100 && telemetry.speed > 250) {
-    priority = 'Critical';
-    reasons.push('Emergency braking at high speed (>250 km/h)');
-  } else if (telemetry.throttle === 0 && telemetry.speed < 50 && telemetry.rpm > 0) {
-    priority = 'High';
-    reasons.push('Possible power unit issue - no throttle response');
-  } else if (telemetry.speed < 100 && telemetry.throttle < 30) {
-    priority = 'Medium';
-    reasons.push('Low speed with reduced throttle - potential issue');
-  }
-  
-  // Radio message keyword analysis
-  const urgentKeywords = ['box', 'problem', 'damage', 'retire', 'issue', 'critical', 'broken'];
-  if (radioMessage && urgentKeywords.some(kw => radioMessage.toLowerCase().includes(kw))) {
-    if (priority === 'Low') priority = 'High';
-    reasons.push('Urgent keywords detected in radio message');
-  }
-  
-  return {
-    priority,
-    reasoning: reasons.join('; ') || 'No critical issues detected',
-    confidence: reasons.length > 0 ? 0.85 : 0.50
-  };
+
+  const { priority, reasoning, confidence, incidentType } = detectAnomalies(telemetry, radioMessage);
+
+  return { priority, reasoning, confidence, incidentType };
 }
 
 // Escape a value for safe use inside a double-quoted CQL string literal.
@@ -123,6 +100,24 @@ async function suggestSolutions(payload) {
       '2. Check wheel gun torque settings and air pressure',
       '3. Analyze pit lane entry/exit speed delta',
       '4. Review tyre preparation timing'
+    ],
+    'engine-stall': [
+      '1. Check for a stall/kill-switch fault or fuel starvation',
+      '2. Review ignition and fuel pump telemetry at the cutout moment',
+      '3. Instruct driver on restart procedure if car is stationary',
+      '4. Prepare recovery vehicle dispatch if car cannot be restarted'
+    ],
+    'gearbox-failure': [
+      '1. Check gearbox hydraulic pressure and paddle-shift actuator logs',
+      '2. Review gear selection telemetry for repeated neutral drops',
+      '3. Advise driver to hold current gear manually if possible',
+      '4. Prepare for potential retirement if fault is unrecoverable'
+    ],
+    'drs-failure': [
+      '1. Instruct driver to manually close DRS immediately - safety priority',
+      '2. Check DRS actuator and pod telemetry for a stuck-open fault',
+      '3. Notify race control if the fault persists (mandatory disclosure)',
+      '4. Review flap for physical/mechanical damage at next pit stop'
     ],
     'potential-issue': [
       '1. Monitor driver feedback on next radio message',

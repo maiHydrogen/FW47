@@ -20,13 +20,18 @@ modules:
       title: Race Incident
       viewportSize: large
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
-    #scheduled:
-    # - key: poll-radio-messages
-    #  function: radio-poller
-    # interval: '30s'  # Poll every 30 seconds during session
-    #- key: poll-pit-stops
-    # function: pit-poller
-    # interval: '60s'  # Poll every minute
+
+  # NOTE: Forge's scheduledTrigger only supports these fixed intervals
+  # (five/ten/fifteen/thirty minutes, hour) - there is no sub-minute option,
+  # so this is a coarse backstop, not real-time pit-wall monitoring. The
+  # webtriggers below remain the fast path for actual live events.
+  scheduledTrigger:
+    - key: poll-radio-messages
+      function: radio-poller
+      interval: five minutes
+    - key: poll-pit-stops
+      function: pit-poller
+      interval: five minutes
 
   action:
     - key: calculate-priority
@@ -89,10 +94,10 @@ modules:
   function:
     - key: resolver
       handler: index.handler
-    #- key: radio-poller
-     # handler: index.pollRadioMessages
-    #- key: pit-poller
-     # handler: index.pollPitStops
+    - key: radio-poller
+      handler: index.pollRadioMessages
+    - key: pit-poller
+      handler: index.pollPitStops
     - key: rovo-actions
       handler: index.rovoActionsHandler
     - key: handle-radio-webhook
