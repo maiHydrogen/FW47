@@ -52,6 +52,14 @@ const TELEMETRY_RULES = [
 
 const URGENT_KEYWORDS = ['box', 'problem', 'damage', 'retire', 'issue', 'critical', 'broken'];
 
+// A baseline needs at least this many valid samples before we trust it
+// enough to replace the flat "potential-issue" threshold.
+const MIN_BASELINE_SAMPLES = 5;
+// How many standard deviations below the driver's own baseline speed
+// counts as an anomaly at all, vs. how many counts as High rather than Medium.
+const BASELINE_MEDIUM_Z = -2;
+const BASELINE_HIGH_Z = -3;
+
 /**
  * Guard against non-numeric/missing telemetry fields so rules can compare
  * with plain operators instead of every rule re-checking types.
@@ -76,12 +84,35 @@ function higherPriority(a, b) {
 /**
  * @param {object} telemetryRaw - a telemetry snapshot (speed, rpm, throttle, brake, n_gear, drs)
  * @param {string} [radioMessage] - driver radio transcript, if any
+ * @param {{avgSpeed: number, stdSpeed: number, sampleSize: number}} [baseline] -
+ *   a driver's own recent-lap baseline (see services/telemetryBaseline.js).
+ *   When present with enough samples, the flat "potential-issue" speed
+ *   threshold is replaced by a comparison against this driver's own normal
+ *   pace instead of a one-size-fits-all constant.
  * @returns {{priority: string, reasons: string[], reasoning: string, confidence: number, incidentType: string|null}}
  */
-export function detectAnomalies(telemetryRaw, radioMessage) {
+export function detectAnomalies(telemetryRaw, radioMessage, baseline) {
   const telemetry = normalizeTelemetry(telemetryRaw);
+  const hasReliableBaseline = baseline && baseline.sampleSize >= MIN_BASELINE_SAMPLES;
 
-  const matches = TELEMETRY_RULES.filter((rule) => rule.test(telemetry));
+  // When a reliable baseline exists, drop the flat "potential-issue" rule -
+  // it's replaced below by a comparison against this driver's own pace.
+  const rules = hasReliableBaseline
+    ? TELEMETRY_RULES.filter((rule) => rule.incidentType !== 'potential-issue')
+    : TELEMETRY_RULES;
+
+  const matches = rules.filter((rule) => rule.test(telemetry));
+
+  if (hasReliableBaseline && typeof telemetry.speed === 'number') {
+    const speedZ = baseline.stdSpeed > 0 ? (telemetry.speed - baseline.avgSpeed) / baseline.stdSpeed : 0;
+    if (speedZ <= BASELINE_MEDIUM_Z) {
+      matches.push({
+        incidentType: 'potential-issue',
+        priority: speedZ <= BASELINE_HIGH_Z ? 'High' : 'Medium',
+        reason: `Speed ${Math.round(telemetry.speed)} km/h is ${Math.abs(speedZ).toFixed(1)} std dev below this driver's own baseline (${Math.round(baseline.avgSpeed)} km/h avg over ${baseline.sampleSize} laps) - possible pace loss`
+      });
+    }
+  }
 
   let priority = matches.length > 0
     ? matches.reduce((p, rule) => higherPriority(p, rule.priority), 'Low')

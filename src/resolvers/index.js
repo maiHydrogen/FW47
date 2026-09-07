@@ -16,6 +16,8 @@ import { handleRadioWebhook } from '../webhooks/radioWebhook';
 import { handlePitWebhook } from '../webhooks/pitWebhook';
 import { handler as rovoActionsHandler } from '../rovo/actions';
 import { predictPitWindow, calculateLapTimeTrend } from '../services/pitStrategy.js';
+import { buildTelemetryBaseline, summarizeTelemetryPoints } from '../services/telemetryBaseline.js';
+import { detectAnomalies } from '../services/anomalyDetection.js';
 
 const resolver = new Resolver();
 
@@ -145,6 +147,40 @@ resolver.define('get-pit-prediction', async (req) => {
     tyreAge,
     lapDeltaTrend
   });
+});
+
+resolver.define('get-lap-anomaly-analysis', async (req) => {
+  const { sessionKey, driverNumber, lapNumber } = req.payload;
+
+  if (!lapNumber) {
+    return { noData: true, message: 'No lap selected.' };
+  }
+
+  // Baseline is built from this driver's own previous 2 laps in this
+  // session - compares "is this lap normal for them right now", not
+  // against a fixed constant.
+  const priorLapNumbers = [lapNumber - 2, lapNumber - 1].filter((n) => n > 0);
+
+  const [currentLapPoints, ...priorLapsPoints] = await Promise.all([
+    fetchLapTelemetry(sessionKey, driverNumber, lapNumber),
+    ...priorLapNumbers.map((n) => fetchLapTelemetry(sessionKey, driverNumber, n))
+  ]);
+
+  const currentSnapshot = summarizeTelemetryPoints(currentLapPoints);
+  if (!currentSnapshot) {
+    return { noData: true, message: 'No telemetry available for this lap yet.' };
+  }
+
+  const baseline = buildTelemetryBaseline(priorLapsPoints.flat());
+  const analysis = detectAnomalies(currentSnapshot, null, baseline);
+
+  return {
+    noData: false,
+    baselineAvailable: !!baseline,
+    baselineSampleSize: baseline?.sampleSize || 0,
+    baselineLaps: priorLapNumbers,
+    ...analysis
+  };
 });
 
 export const handler = resolver.getDefinitions();

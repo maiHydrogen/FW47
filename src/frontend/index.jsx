@@ -24,6 +24,7 @@ const App = () => {
   const [telemetry, setTelemetry] = useState(null);
   const [pitStrategy, setPitStrategy] = useState(null);
   const [pitPrediction, setPitPrediction] = useState(null);
+  const [lapAnomaly, setLapAnomaly] = useState(null);
   const [lapTimes, setLapTimes] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -45,11 +46,12 @@ const App = () => {
           lapNumber: ctx.lapNumber
         };
         
-        const [telemetryData, pitData, lapData, pitPredictionData] = await Promise.all([
+        const [telemetryData, pitData, lapData, pitPredictionData, lapAnomalyData] = await Promise.all([
           invoke('get-telemetry-data', payload),
           invoke('get-pit-strategy', payload),
           invoke('get-lap-times', payload),
-          invoke('get-pit-prediction', payload)
+          invoke('get-pit-prediction', payload),
+          invoke('get-lap-anomaly-analysis', payload)
         ]);
 
         // Apply validation before setting state
@@ -57,6 +59,7 @@ const App = () => {
         setPitStrategy(validatePitStrategy(pitData));
         setLapTimes(validateLapTimes(lapData));
         setPitPrediction(pitPredictionData?.noData ? null : pitPredictionData);
+        setLapAnomaly(lapAnomalyData?.noData ? null : lapAnomalyData);
         
       } catch (err) {
         console.error('Error loading data:', err);
@@ -131,9 +134,10 @@ const App = () => {
         </TabPanel>
 
         <TabPanel>
-          <TelemetryTab 
-            context={context} 
-            telemetry={telemetry} 
+          <TelemetryTab
+            context={context}
+            telemetry={telemetry}
+            lapAnomaly={lapAnomaly}
           />
         </TabPanel>
 

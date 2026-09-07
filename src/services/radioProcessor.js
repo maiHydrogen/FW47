@@ -1,6 +1,7 @@
 import { fetchTelemetryByTimestamp, fetchSessionInfo, fetchDriverInfo } from '../resolvers/openf1';
 import api, { route } from '@forge/api';
 import { getTeamDriver, JIRA_PROJECT_KEY, JIRA_ISSUE_TYPES } from '../config/team.js';
+import { detectAnomalies } from './anomalyDetection.js';
 
 export async function processRadioMessage(radio, sessionKey) {
   const { date, driver_number, recording_url } = radio;
@@ -22,13 +23,22 @@ export async function processRadioMessage(radio, sessionKey) {
   console.log(`Session: ${session?.session_name || 'Unknown'}`);
   console.log(`Telemetry available: ${!!telemetry}`);
 
+  // NOTE: OpenF1's team_radio endpoint only provides an audio recording
+  // URL, not a text transcript - there's no speech-to-text step in this
+  // pipeline, so radio-content keyword analysis in detectAnomalies() can
+  // only run when a transcript is supplied manually (e.g. via the Rovo
+  // agent). Automated processing here is telemetry-only.
+  const analysis = detectAnomalies(telemetry, null);
+  console.log(`Anomaly analysis: ${analysis.priority} - ${analysis.reasoning}`);
+
   // Build ticket description
   const description = buildRadioTicketDescription({
     radio,
     telemetry,
     session,
     driver,
-    driverNumber: driver_number
+    driverNumber: driver_number,
+    analysis
   });
 
   // Create Jira ticket
@@ -39,7 +49,8 @@ export async function processRadioMessage(radio, sessionKey) {
     description,
     driverNumber: driver_number,
     recordingUrl: recording_url,
-    sessionKey  // ← ADD THIS
+    sessionKey,
+    analysis
   });
 
 
@@ -50,12 +61,14 @@ export async function processRadioMessage(radio, sessionKey) {
     ticketKey: ticket.key,
     ticketId: ticket.id,
     telemetryFetched: !!telemetry,
-    sessionInfo: session?.session_name || null
+    sessionInfo: session?.session_name || null,
+    priority: analysis.priority,
+    incidentType: analysis.incidentType
   };
 }
 
 function buildRadioTicketDescription(data) {
-  const { radio, telemetry, session, driver, driverNumber } = data;
+  const { radio, telemetry, session, driver, driverNumber, analysis } = data;
 
   const radioTime = new Date(radio.date);
   const formattedTime = radioTime.toISOString().substr(11, 8); // HH:MM:SS
@@ -84,16 +97,37 @@ function buildRadioTicketDescription(data) {
     desc += `_Telemetry data not available for this moment_\n`;
   }
 
+  if (analysis) {
+    desc += `\n---\n\n`;
+    desc += `*AI Analysis (Rovo Race Engineer)*\n\n`;
+    desc += `- *Priority:* ${analysis.priority}\n`;
+    desc += `- *Suspected Issue:* ${analysis.incidentType || 'None identified'}\n`;
+    desc += `- *Reasoning:* ${analysis.reasoning}\n`;
+  }
+
   return desc;
 }
 
 async function createRadioTicket(data) {
-  const { driver, session, description, driverNumber, sessionKey } = data;  // ← Add sessionKey
+  const { driver, session, description, driverNumber, sessionKey, analysis } = data;
+
+  const priority = analysis?.priority || 'Medium';
+  const summaryPrefix = priority === 'Critical' ? '🚨 CRITICAL' : priority === 'High' ? '⚠️ HIGH' : 'Radio';
+
+  const labels = [
+    `driver-${driverNumber}`,
+    `session-${sessionKey}`,
+    'team-radio',
+    'auto-generated'
+  ];
+  if (analysis?.incidentType) {
+    labels.push(`incident-${analysis.incidentType}`);
+  }
 
   const payload = {
     fields: {
       project: { key: JIRA_PROJECT_KEY },
-      summary: `Radio: ${driver.acronym} - ${session?.session_name || 'Session'}`,
+      summary: `${summaryPrefix}: ${driver.acronym} - ${session?.session_name || 'Session'}`,
       description: {
         type: 'doc',
         version: 1,
@@ -105,12 +139,8 @@ async function createRadioTicket(data) {
         ]
       },
       issuetype: { name: JIRA_ISSUE_TYPES.incident },
-      labels: [
-        `driver-${driverNumber}`,
-        `session-${sessionKey}`,  // ← ADD THIS
-        'team-radio',
-        'auto-generated'
-      ]
+      priority: { name: priority },
+      labels
     }
   };
 

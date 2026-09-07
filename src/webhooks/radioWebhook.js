@@ -72,6 +72,8 @@ export async function handleRadioWebhook(req) {
         recordingUrl: radioToProcess.recording_url || null,
         telemetryFetched: result.telemetryFetched,
         sessionInfo: result.sessionInfo,
+        priority: result.priority,
+        incidentType: result.incidentType,
         totalRadiosAvailable: radios.length
       })
     };

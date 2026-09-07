@@ -1,8 +1,15 @@
 import React from 'react';
 import { Box, Stack, Inline, Heading, Text, Lozenge, SectionMessage, EmptyState, Image, ProgressBar } from '@forge/react';
 
-const TelemetryTab = ({ context, telemetry }) => {
-  
+const TelemetryTab = ({ context, telemetry, lapAnomaly }) => {
+
+  const getAnomalyAppearance = (priority) => {
+    if (priority === 'Critical' || priority === 'High') return 'error';
+    if (priority === 'Medium') return 'warning';
+    return 'success';
+  };
+
+
   // 1. CHART GENERATOR (Downsampled to 50 points for URL limit)
   const generateChartUrl = (data) => {
     if (!data || data.length === 0) return null;
@@ -71,7 +78,21 @@ const TelemetryTab = ({ context, telemetry }) => {
           <EmptyState header="No Telemetry" description="Data unavailable for this lap." />
         ) : (
           <Stack space="space.300">
-            
+
+            {lapAnomaly && (
+              <SectionMessage
+                appearance={getAnomalyAppearance(lapAnomaly.priority)}
+                title={lapAnomaly.priority === 'Low' ? 'No anomalies detected' : `${lapAnomaly.priority} priority: ${lapAnomaly.incidentType || 'anomaly'}`}
+              >
+                <Text>{lapAnomaly.reasoning}</Text>
+                {lapAnomaly.baselineAvailable && (
+                  <Text size="small" color="color.text.subtlest">
+                    Compared against this driver's own laps {lapAnomaly.baselineLaps?.join(', ')} ({lapAnomaly.baselineSampleSize} samples)
+                  </Text>
+                )}
+              </SectionMessage>
+            )}
+
             {/* 1. THE CHART (Visual) */}
             <Box 
                padding="space.0" 
