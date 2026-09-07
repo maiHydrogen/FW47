@@ -1,5 +1,6 @@
 import api, { route } from '@forge/api';
 import { detectAnomalies } from '../services/anomalyDetection.js';
+import { predictPitWindow } from '../services/pitStrategy.js';
 
 export const handler = async (req) => {
   const { actionKey, payload } = req;
@@ -13,6 +14,9 @@ export const handler = async (req) => {
 
     case 'suggest-solutions':
       return await suggestSolutions(payload);
+
+    case 'predict-pit-window':
+      return await predictPitStop(payload);
 
     default:
       return {
@@ -35,6 +39,21 @@ async function calculatePriority(payload) {
   const { priority, reasoning, confidence, incidentType } = detectAnomalies(telemetry, radioMessage);
 
   return { priority, reasoning, confidence, incidentType };
+}
+
+async function predictPitStop(payload) {
+  const { compound, tyreAge, lapDeltaTrend } = payload;
+
+  const parsedTyreAge = Number(tyreAge);
+  const parsedTrend = lapDeltaTrend !== undefined && lapDeltaTrend !== null && lapDeltaTrend !== ''
+    ? Number(lapDeltaTrend)
+    : undefined;
+
+  return predictPitWindow({
+    compound,
+    tyreAge: Number.isNaN(parsedTyreAge) ? undefined : parsedTyreAge,
+    lapDeltaTrend: Number.isNaN(parsedTrend) ? undefined : parsedTrend
+  });
 }
 
 // Escape a value for safe use inside a double-quoted CQL string literal.

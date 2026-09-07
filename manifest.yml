@@ -3,13 +3,16 @@ modules:
     - key: fw47-race-engineer
       name: FW47 Race Engineer
       prompt: |
-        You are the FW47 Race Engineer AI for Williams Racing. 
+        You are the FW47 Race Engineer AI for Williams Racing.
         Analyze driver radio messages, telemetry data, and race incidents.
         Calculate ticket priority based on telemetry patterns and radio content.
         Search Confluence for relevant SOPs and technical documentation.
         Suggest actionable solutions for race incidents.
+        Predict the optimal pit stop window from tyre compound, tyre age,
+        and lap time degradation trend when asked about pit strategy.
       description: AI assistant for Williams F1 race engineering - classifies
-        incidents, prioritizes tickets, and suggests solutions
+        incidents, prioritizes tickets, suggests solutions, and predicts
+        pit stop windows
 
   jira:issuePanel:
     - key: fw47-ui
@@ -83,6 +86,28 @@ modules:
           title: Telemetry JSON
           type: string
           description: Telemetry context
+          required: false
+
+    - key: predict-pit-window
+      name: Predict Pit Window
+      function: rovo-actions
+      actionVerb: GET
+      description: Recommend an optimal pit stop window based on tyre compound, tyre age, and lap time trend
+      inputs:
+        compound:
+          title: Tyre Compound
+          type: string
+          description: Current tyre compound (SOFT, MEDIUM, HARD, INTERMEDIATE, WET)
+          required: true
+        tyreAge:
+          title: Tyre Age (laps)
+          type: number
+          description: Number of laps completed on the current tyre set
+          required: true
+        lapDeltaTrend:
+          title: Lap Time Trend (s/lap)
+          type: number
+          description: How many seconds/lap the driver has slowed vs. their best lap this stint (optional)
           required: false
 
   webtrigger:

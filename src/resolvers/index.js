@@ -15,6 +15,7 @@ import api, { route } from '@forge/api';
 import { handleRadioWebhook } from '../webhooks/radioWebhook';
 import { handlePitWebhook } from '../webhooks/pitWebhook';
 import { handler as rovoActionsHandler } from '../rovo/actions';
+import { predictPitWindow, calculateLapTimeTrend } from '../services/pitStrategy.js';
 
 const resolver = new Resolver();
 
@@ -97,20 +98,53 @@ resolver.define('get-pit-strategy', async (req) => {
   };
 });
 
-resolver.define('get-lap-times', async (req) => {
-  const { sessionKey, driverNumber, lapNumber } = req.payload;
+// Shared by get-lap-times and get-pit-prediction so both work from the
+// same "laps up to this point" data instead of duplicating the fetch.
+async function fetchLapsUpTo(sessionKey, driverNumber, lapNumber) {
   const response = await api.fetch(`https://api.openf1.org/v1/laps?session_key=${sessionKey}&driver_number=${driverNumber}`);
   const allLaps = await response.json();
 
-  if (!Array.isArray(allLaps)) return { laps: [], bestLap: null };
+  if (!Array.isArray(allLaps)) return [];
+  return lapNumber ? allLaps.filter(l => l.lap_number <= lapNumber) : allLaps;
+}
 
-  const validLaps = lapNumber ? allLaps.filter(l => l.lap_number <= lapNumber) : allLaps;
+resolver.define('get-lap-times', async (req) => {
+  const { sessionKey, driverNumber, lapNumber } = req.payload;
+  const validLaps = await fetchLapsUpTo(sessionKey, driverNumber, lapNumber);
+
   const bestLap = validLaps.reduce((min, p) => p.lap_duration && p.lap_duration < min ? p.lap_duration : min, Infinity);
 
   return {
     laps: validLaps.sort((a, b) => b.lap_number - a.lap_number),
     bestLap: bestLap === Infinity ? null : bestLap
   };
+});
+
+resolver.define('get-pit-prediction', async (req) => {
+  const { sessionKey, driverNumber, lapNumber } = req.payload;
+
+  const [stints, laps] = await Promise.all([
+    fetchStintData(sessionKey, driverNumber),
+    fetchLapsUpTo(sessionKey, driverNumber, lapNumber)
+  ]);
+
+  const currentStints = lapNumber ? stints.filter(s => s.lap_start <= lapNumber) : stints;
+  const currentStint = currentStints[currentStints.length - 1];
+
+  if (!currentStint) {
+    return { noData: true, message: 'No stint data available yet for this driver/session.' };
+  }
+
+  const referenceLap = lapNumber || currentStint.lap_end || currentStint.lap_start;
+  const tyreAge = (currentStint.tyre_age_at_start || 0) + Math.max(referenceLap - currentStint.lap_start, 0);
+
+  const lapDeltaTrend = calculateLapTimeTrend(laps, 3);
+
+  return predictPitWindow({
+    compound: currentStint.compound,
+    tyreAge,
+    lapDeltaTrend
+  });
 });
 
 export const handler = resolver.getDefinitions();

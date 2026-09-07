@@ -1,12 +1,18 @@
 import React from 'react';
-import { Box, Stack, Inline, Heading, Text, Badge, Lozenge, EmptyState, ProgressBar } from '@forge/react';
+import { Box, Stack, Inline, Heading, Text, Badge, Lozenge, EmptyState, ProgressBar, SectionMessage } from '@forge/react';
 
-const PitStrategyTab = ({ context, pitStrategy }) => {
+const PitStrategyTab = ({ context, pitStrategy, pitPrediction }) => {
   const getCompoundBg = (compound) => {
      const c = (compound || '').toUpperCase();
      if (c === 'SOFT') return 'color.background.danger.subtle';
      if (c === 'MEDIUM') return 'color.background.warning.subtle';
      return 'color.background.neutral';
+  };
+
+  const getPredictionAppearance = (urgency) => {
+    if (urgency === 'high') return 'error';
+    if (urgency === 'medium') return 'warning';
+    return 'info';
   };
 
   // Calculate Average Pit Duration
@@ -20,7 +26,16 @@ const PitStrategyTab = ({ context, pitStrategy }) => {
     <Box padding="space.300">
       <Stack space="space.300">
         <Heading size="medium">Pit Strategy</Heading>
-        
+
+        {pitPrediction && pitPrediction.risk !== 'unknown' && (
+          <SectionMessage
+            appearance={getPredictionAppearance(pitPrediction.urgency)}
+            title={`Pit Window: ${pitPrediction.compound} - Lap ${pitPrediction.tyreAge} on this set`}
+          >
+            <Text>{pitPrediction.recommendation}</Text>
+          </SectionMessage>
+        )}
+
         {!pitStrategy || pitStrategy.stints?.length === 0 ? (
           <EmptyState header="No Strategy Data" description="Pit stop information unavailable." />
         ) : (

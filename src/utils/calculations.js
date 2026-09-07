@@ -84,7 +84,11 @@ export const calculateConsistency = (laps, avgLapTime) => {
 };
 
 /**
- * Determine tire degradation risk level
+ * Determine tire degradation risk level from lap count alone.
+ * NOTE: for actual pit-window predictions use
+ * services/pitStrategy.js#getTireDegradationRisk instead - it's
+ * compound-aware (soft/medium/hard degrade at very different rates),
+ * this generic version is kept for simple lap-count-only callers.
  */
 export const getTireDegradationRisk = (stintLength) => {
   if (stintLength > 20) return 'high';
