@@ -115,11 +115,13 @@ with come from B6.
 ## Step 0: Honesty pass (before anything else)
 
 - [ ] Tag the current `main` as `v0-codegeist-prototype` and push the tag.
-- [ ] Rewrite `README.md` to describe only what exists today. Mark everything else "planned" and link this plan.
-  - [ ] Replace "Codegeist 2025 Submission" with an origin note: built for Codegeist 2025, not submitted, being rebuilt.
-  - [ ] Remove claims that aren't built: "Live Telemetry", "real-time", purple/green sectors, radio keyword detection.
-  - [ ] Fix the install section (unclosed code block, empty webtrigger section).
-- [ ] Add Python entries to `.gitignore`: `.venv/`, `__pycache__/`, `data/`, the fastf1 cache folder.
+- [x] Rewrite `README.md` to describe only what exists today. Mark everything else "planned" and link this plan.
+  - [x] Replace "Codegeist 2025 Submission" with an origin note: built for Codegeist 2025, not submitted, being rebuilt.
+  - [x] Remove claims that aren't built: "Live Telemetry", "real-time", purple/green sectors, radio keyword detection.
+  - [x] Fix the install section (unclosed code block, empty webtrigger section).
+- [x] Add Python entries to `.gitignore`: `.venv/`, `__pycache__/`, `data/`, the fastf1 cache folder.
+- [x] Remove the three webtrigger URLs committed in `.gitignore` and `src/index.js`.
+- [ ] Rotate those webtrigger URLs. They've been in the public history since Dec 2025, and anyone who has one can create Jira issues.
 - [ ] Merge `dev` into `main` so the public default branch shows current work.
 
 **Evidence**

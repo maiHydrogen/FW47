@@ -7,17 +7,22 @@
 node_modules/
 dist/
 
-# venv
+# Python
 venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
 
-# cache
+# Data and caches (fastf1 cache, Parquet tables, Kaggle files)
+data/
 f1_cache/
+fastf1_cache/
 
 # Compiled Java class files
 *.class
-
-# Compiled Python bytecode
-*.py[cod]
 
 # Log files
 *.log
@@ -56,5 +61,3 @@ Thumbs.db
 
 
 /.forge/
-
-# web trigger - rrl -> https://aa8d3260-46fe-414b-93e8-439fb94c4203.hello.atlassian-dev.net/x1/WyqE2mnfqwMPT7UWJlFs6lFFch4
