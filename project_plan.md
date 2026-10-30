@@ -308,25 +308,34 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
 - Done: see "Findings" in `analysis/01_inventory.ipynb`. Median interval 0.24 s (4.17 Hz); ~150 retirements over 3 seasons, almost none with a cause.
 
 ### B2. Cleaning and alignment
-- [ ] Attach a lap number and lap distance to every sample: match samples to laps by `date_start`, then integrate speed over time within each lap (check it against the X/Y location data).
-- [ ] Flag, don't drop: lap 1, in/out laps, SC/VSC/red-flag laps, deleted laps, wet running. Keep the flags as columns so the choices can be reversed.
-- [ ] Run quality checks: gaps over 1 s, duplicate timestamps, physically impossible values.
-- [ ] Build a data funnel table: how many samples each filter removes.
+- [x] Attach a lap number and lap distance to every sample: match samples to laps by `date_start`, then integrate speed over time within each lap (check it against the X/Y location data).
+- [x] Flag, don't drop: lap 1, in/out laps, SC/VSC/red-flag laps, deleted laps, wet running. Keep the flags as columns so the choices can be reversed.
+- [x] Run quality checks: gaps over 1 s, duplicate timestamps, physically impossible values.
+- [x] Build a data funnel table: how many samples each filter removes.
+- [ ] Re-run `analysis/build_clean.py` for 2023 and 2025 once their car data is downloaded (B1).
 
 **Evidence**
 - `analysis/02_cleaning.ipynb` with the funnel table and an example of each excluded category.
+- Done for 2024: see "Findings" in the notebook. Code in `pipeline/fw47_core/clean.py`, run by `analysis/build_clean.py`.
+  Lap distance is within 0.6–1.7% of official track lengths, with ~9 m lap-to-lap spread. 78% of laps (515 car-hours) are clean.
+  OpenF1 quirks found and handled: retired cars stream a car-off reading, `pit.date` falls in the out-lap, laps are renumbered around red flags, some lap boundaries are broken, and the brake channel sometimes sticks on (found in B3).
 
 ### B3. Audit the current rules
-- [ ] Port the JS rules to `pipeline/fw47_core/rules.py` with identical thresholds. Track A imports this.
-- [ ] Run them over clean laps from the tuning seasons: alerts per car-hour, by rule and by track.
-- [ ] Plot where each rule fires on the track map, using the X/Y position data.
-- [ ] Decide for each rule:
+- [x] Port the JS rules to `pipeline/fw47_core/rules.py` with identical thresholds. Track A imports this.
+  - Tests in `pipeline/tests/test_rules.py` port the JS tests and check that the vectorised versions match.
+- [x] Run them over clean laps from the tuning seasons: alerts per car-hour, by rule and by track. (2024 only so far; re-run when 2023 car data is in.)
+- [x] Plot where each rule fires on the track map, using the X/Y position data.
+- [x] Decide for each rule:
   - Keep rules that describe impossible states, e.g. RPM 0 while moving.
   - Replace rules that fire in normal driving.
   - 2026 cars have no DRS (active aero replaced it), so DRS rules only apply up to 2025.
 
 **Evidence**
 - `analysis/03_rule_audit.ipynb`: alerts per car-hour per rule, track maps, and the keep/replace decision for each rule.
+- Done (2024): the shipped rules raise ~314 false alerts per car-hour, ~99% of them from `emergency-braking` and
+  `potential-issue`. Keep `engine-stall` (0 false alerts; caught Hamilton's Melbourne engine failure), `gearbox-failure`,
+  and `drs-failure` with a 3-sample persistence condition (2023–2025 only). Replace the rest with the B4 baseline.
+  The issue panel rated 29% of clean laps Critical, so its lap-summary mode is dropped.
 
 ### B4. Contextual baselines
 - [ ] v1: for each track, bin lap distance (e.g. 25 m) and compute the median and MAD of speed over clean tuning-season laps.

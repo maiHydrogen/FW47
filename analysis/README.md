@@ -40,6 +40,16 @@ signed-in F1 account.
 .venv/bin/python analysis/download.py --seasons 2024 --heavy
 ```
 
+## Cleaning (B2)
+
+`build_clean.py` runs `pipeline/fw47_core/clean.py` over every session that has car data. For each session, it
+writes a lap table (one row per driver lap, with a column per reason to distrust it) and a sample table (each
+sample with lap number, lap distance, X/Y, quality flags and its lap's flags) to `data/clean/`:
+
+```bash
+.venv/bin/python analysis/build_clean.py --seasons 2024   # ~1 minute
+```
+
 ## Notebooks
 
 Run them from this folder (`cd analysis && ../.venv/bin/jupyter lab`).
@@ -47,3 +57,11 @@ Run them from this folder (`cd analysis && ../.venv/bin/jupyter lab`).
 | Notebook | Plan step |
 |---|---|
 | `01_inventory.ipynb` | B1: what data exists, sample rates, missing data, label sources |
+| `02_cleaning.ipynb` | B2: lap distance checks, lap flags, quality checks, data funnel (needs `build_clean.py` first) |
+| `03_rule_audit.ipynb` | B3: the Forge app's anomaly rules on clean laps: false alerts per car-hour, track maps, keep/replace decisions |
+
+The shared code lives in `pipeline/fw47_core/` (`clean.py` for B2, `rules.py` for the ported rules). Run its tests with:
+
+```bash
+.venv/bin/python -m pytest pipeline/tests
+```
