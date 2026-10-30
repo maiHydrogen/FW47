@@ -45,7 +45,7 @@ matching SOP from Confluence, writes a report page per session, and lets a Rovo 
 incidents on request.
 
 ```
-OFFLINE   fastf1 cache ──► analysis/ notebooks (inventory · audit · baselines · evaluation)
+OFFLINE   OpenF1 data  ──► analysis/ notebooks (inventory · audit · baselines · evaluation)
                                 │
                                 │  fw47_core: one scoring library, used offline and online
 ONLINE                          ▼
@@ -114,7 +114,7 @@ with come from B6.
 
 ## Step 0: Honesty pass (before anything else)
 
-- [ ] Tag the current `main` as `v0-codegeist-prototype` and push the tag.
+- [x] Tag the current `main` as `v0-codegeist-prototype` and push the tag.
 - [x] Rewrite `README.md` to describe only what exists today. Mark everything else "planned" and link this plan.
   - [x] Replace "Codegeist 2025 Submission" with an origin note: built for Codegeist 2025, not submitted, being rebuilt.
   - [x] Remove claims that aren't built: "Live Telemetry", "real-time", purple/green sectors, radio keyword detection.
@@ -122,7 +122,7 @@ with come from B6.
 - [x] Add Python entries to `.gitignore`: `.venv/`, `__pycache__/`, `data/`, the fastf1 cache folder.
 - [x] Remove the three webtrigger URLs committed in `.gitignore` and `src/index.js`.
 - [ ] Rotate those webtrigger URLs. They've been in the public history since Dec 2025, and anyone who has one can create Jira issues.
-- [ ] Merge `dev` into `main` so the public default branch shows current work.
+- [x] Merge `dev` into `main` so the public default branch shows current work.
 
 **Evidence**
 - Every claim in the README points to a file that exists.
@@ -138,7 +138,7 @@ deduplicated, signed incidents to Forge. Every design choice is written down and
 
 ### A1. Repo layout and tooling
 - [ ] Add `pipeline/` (package `fw47_core/` plus `service/`), `analysis/` (notebooks), `bench/` and `docs/`. Leave the Forge app in `src/`.
-- [ ] Pin the Python dependencies in `pipeline/pyproject.toml`: fastf1, pandas, numpy, redis, httpx, prometheus-client, pytest.
+- [ ] Pin the Python dependencies in `pipeline/pyproject.toml`: pandas, pyarrow, numpy, redis, httpx, prometheus-client, pytest.
 - [ ] Install `fw47_core` in editable mode (`pip install -e pipeline`) so the notebooks import the same code.
 - [ ] Add `docker-compose.yml` with `redis` (AOF persistence on), `replayer`, `scorer` and `aggregator`, restart policy `unless-stopped`.
 - [ ] Add GitHub Actions running `pytest` and `npm test` on every PR.
@@ -152,7 +152,7 @@ deduplicated, signed incidents to Forge. Every design choice is written down and
 - [ ] Define a versioned `TelemetrySample` schema: `schema_version, session_key, driver_number, t_source, t_published, lap, lap_distance_m, speed, rpm, gear, throttle, brake, drs, interpolated`.
 - [ ] Add a `Source` interface (`async for sample in source`) so the pipeline doesn't care where data comes from.
 - [ ] `ReplaySource`:
-  - [ ] Load a session from the fastf1 cache and merge all cars into one time-ordered stream.
+  - [ ] Load a session from the B1 Parquet tables and merge all cars into one time-ordered stream.
   - [ ] Play it back at a configurable speed: 1×, 5×, or as fast as possible.
 - [ ] Upsample to 50 Hz:
   - [ ] Interpolate continuous channels (speed, rpm, throttle, distance).
@@ -272,7 +272,7 @@ Confluence, Rovo and panel (needed for M3):
 - The documents themselves.
 
 ### A10 (stretch). Live source
-- [ ] Check whether fastf1's live-timing client still works without paid access, and whether personal use fits F1's terms.
+- [ ] Find a usable live source: OpenF1's real-time access (check whether it's paid) or fastf1's live-timing client (needs an F1 account). Check that personal use fits the terms.
 - [ ] Implement `LiveSource` behind the same interface. Compute lap distance by integrating speed from the start of each lap.
 - [ ] Run the pipeline through one session of a remaining 2026 race weekend.
 
@@ -287,21 +287,28 @@ Confluence, Rovo and panel (needed for M3):
 choose its operating point (alert rate vs time-to-signal) from data.
 
 ### B1. Data inventory
-- [ ] Learn the fastf1 docs (sessions, laps, telemetry, caching). If needed, do the Kaggle *Pandas* and *Data Visualization* micro-courses.
-- [ ] Load race sessions for 2023–2025 with a local fastf1 cache.
-  - Start with one season to build the method, then scale up.
-  - Switch to DuckDB or Polars if pandas runs out of memory.
-- [ ] `analysis/01_inventory.ipynb`: channels available, real sample intervals (histogram), missing data, and counts of races, cars, laps and samples.
-- [ ] Quick EDA: speed and throttle traces for a few laps per track, and the distribution of each channel.
-- [ ] Save tidy Parquet tables in `data/` (git-ignored): samples, laps, and events (race control, track status, results).
-- [ ] Fix the split now: **tune on 2023–2024, test once on 2025.**
+
+_Source change (2026-10-29): fastf1 can't be used without an F1 account, because F1's timing archive now
+returns 401. We use **OpenF1** (car data, location, laps, stints, pit stops, race control, weather, positions,
+intervals, session results; 2023 onwards) and **Jolpica** (results with status). See `analysis/README.md`._
+
+- [ ] Learn: the OpenF1 docs (endpoints and filters). If needed, do the Kaggle *Pandas* and *Data Visualization* micro-courses.
+- [x] `analysis/download.py`: cached downloader that writes Parquet tables to `data/parquet/` (git-ignored).
+- [x] Download the per-session tables for 2023–2025, and car data + location for 2024.
+  - [ ] Car data + location for 2023 and 2025, once the method works on 2024 (~2.5 hours per season).
+  - Loading all of 2024 at once peaks at ~6.6 GB of RAM: process one session at a time, or switch to DuckDB or Polars.
+- [x] `analysis/01_inventory.ipynb`: coverage per table, counts of races, cars, laps and samples, real sample intervals (histogram), missing data, channel values.
+- [x] Quick EDA: speed and throttle traces for a few laps per track, and the distribution of each channel.
+- [x] Inventory the possible label sources: Jolpica status, OpenF1 `dnf` flags, race-control messages.
+- [x] Fix the split now: **tune on 2023–2024, test once on 2025.**
 
 **Evidence**
 - An inventory table.
 - A histogram of sample intervals. This is where "~4 Hz" comes from.
+- Done: see "Findings" in `analysis/01_inventory.ipynb`. Median interval 0.24 s (4.17 Hz); ~150 retirements over 3 seasons, almost none with a cause.
 
 ### B2. Cleaning and alignment
-- [ ] Attach a lap number and lap distance to every sample (`add_distance()` per lap).
+- [ ] Attach a lap number and lap distance to every sample: match samples to laps by `date_start`, then integrate speed over time within each lap (check it against the X/Y location data).
 - [ ] Flag, don't drop: lap 1, in/out laps, SC/VSC/red-flag laps, deleted laps, wet running. Keep the flags as columns so the choices can be reversed.
 - [ ] Run quality checks: gaps over 1 s, duplicate timestamps, physically impossible values.
 - [ ] Build a data funnel table: how many samples each filter removes.
@@ -336,7 +343,8 @@ choose its operating point (alert rate vs time-to-signal) from data.
 - Alerts per car-hour compared with the B3 rules.
 
 ### B5. Ground-truth labels
-- [ ] Mechanical retirements with cause for 2023–2025, from fastf1 results `Status` or Jolpica (the Ergast successor). Check coverage for 2025.- [ ] Cars stopping on track, from race-control messages that name a car and from track-status changes.
+- [ ] Mechanical retirements for 2023–2025, from Jolpica `status` and OpenF1 `dnf` flags. B1 found that Jolpica mostly says just "Retired", without a cause. Decide how to separate mechanical failures from crashes (e.g. race-control messages, whether the car was damaged in contact) and write the rule down.
+- [ ] Cars stopping on track, from race-control messages that name a car and from track-status changes.
   - Keep this class separate from mechanical failures so the easy cases don't inflate recall.
 - [ ] For each incident, record:
   - The onset, marked by hand from plots using a written rule.
@@ -397,7 +405,7 @@ choose its operating point (alert rate vs time-to-signal) from data.
   - **So it's not used for B5 labels or for B8's training and evaluation.** Results on synthetic rows say nothing about real races.
   - **It is useful as a warm-up**, before B8 proper. Its target is the same as B8's.
     - [ ] Build the B8 pipeline on it end to end (features, cross-validation, XGBoost, PR-AUC, SHAP) and submit to the competition for a leaderboard score.
-    - [ ] Then re-run the same code on real fastf1 laps and compare. Expect a lower score on real data, because the synthetic label rate is inflated. Write down why.
+    - [ ] Then re-run the same code on real OpenF1 laps and compare. Expect a lower score on real data, because the synthetic label rate is inflated. Write down why.
   - [ ] Keep the files out of git (`data/` is git-ignored), and check the competition rules before sharing anything derived from them.
 - [ ] Build one row per (race, driver, lap). The label is "pits within the next 3 laps".
 - [ ] Use only features known at the end of the lap:
@@ -405,7 +413,7 @@ choose its operating point (alert rate vs time-to-signal) from data.
   - Lap-time trend vs the stint's best lap.
   - Gaps to the cars ahead and behind.
   - Track status, track temperature, rainfall, track.
-- [ ] Split by season, never mixing laps from one race across splits: train 2018–2023, validate 2024, test 2025. Check 2026 races separately as out-of-distribution data.
+- [ ] Split by season, never mixing laps from one race across splits: OpenF1 starts in 2023, so tune with cross-validation grouped by race on 2023–2024, and test once on 2025. Check 2026 races separately as out-of-distribution data.
 - [ ] Baselines: the compound-window table in `src/services/pitStrategy.js`, and a logistic regression.
 - [ ] Metrics and explanation:
   - PR-AUC (pit laps are rare).

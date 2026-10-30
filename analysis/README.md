@@ -1,0 +1,49 @@
+# analysis/
+
+Notebooks and scripts for Track B (the data analysis) in [project_plan.md](../project_plan.md).
+
+## Setup
+
+From the repo root:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r analysis/requirements.txt
+```
+
+If `venv` complains that `ensurepip` is missing (Debian/Ubuntu without `python3-venv`), create the
+environment without pip and install into it with the system pip instead:
+
+```bash
+python3 -m venv --without-pip .venv
+pip --python .venv/bin/python install -r analysis/requirements.txt
+```
+
+## Data
+
+Data comes from two free APIs. fastf1 isn't used: F1's timing archive, which fastf1 reads, now needs a
+signed-in F1 account.
+
+- [OpenF1](https://openf1.org): car data, location, laps, stints, pit stops, race control, weather,
+  positions, intervals and session results (2023 onwards).
+- [Jolpica](https://github.com/jolpica/jolpica-f1) (the Ergast successor): race results with a status per
+  driver.
+
+`download.py` caches every response in `data/raw_cache/` and writes Parquet tables to
+`data/parquet/<table>/season=<year>/<session_key>.parquet`. `data/` is git-ignored.
+
+```bash
+# Per-session tables (laps, stints, pit, race control, ...) for all three seasons: ~30 minutes
+.venv/bin/python analysis/download.py --seasons 2023 2024 2025
+
+# Car data and location as well (~2.5 hours per season; ~160 MB of Parquet plus ~300 MB of cache)
+.venv/bin/python analysis/download.py --seasons 2024 --heavy
+```
+
+## Notebooks
+
+Run them from this folder (`cd analysis && ../.venv/bin/jupyter lab`).
+
+| Notebook | Plan step |
+|---|---|
+| `01_inventory.ipynb` | B1: what data exists, sample rates, missing data, label sources |
