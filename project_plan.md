@@ -153,21 +153,23 @@ deduplicated, signed incidents to Forge. Every design choice is written down and
 - CI is green on a PR.
 
 ### A2. Message schema and sources
-- [ ] Define a versioned `TelemetrySample` schema: `schema_version, session_key, driver_number, t_source, t_published, lap, lap_distance_m, speed, rpm, gear, throttle, brake, drs, interpolated`.
-- [ ] Add a `Source` interface (`async for sample in source`) so the pipeline doesn't care where data comes from.
-- [ ] `ReplaySource`:
-  - [ ] Load a session from the B1 Parquet tables and merge all cars into one time-ordered stream.
-  - [ ] Play it back at a configurable speed: 1×, 5×, or as fast as possible.
-- [ ] Upsample to 50 Hz:
-  - [ ] Interpolate continuous channels (speed, rpm, throttle, distance).
-  - [ ] Forward-fill discrete channels (gear, brake, drs).
-  - [ ] Set `interpolated=true` on generated samples and pass real samples through unchanged.
-- [ ] Add a deterministic mode for tests, with no wall clock: the same session in gives the same messages out.
-- [ ] Also publish `lap_completed` events (lap time, compound, tyre life, position). Only B8 needs these.
+- [x] Define a versioned `TelemetrySample` schema: `schema_version, session_key, driver_number, t_source, t_published, lap, lap_distance_m, speed, rpm, gear, throttle, brake, drs, interpolated` (`pipeline/service/schema.py`, with flat string fields for Redis and a refusal of unknown versions).
+- [x] Add a `Source` interface (`async for sample in source`) so the pipeline doesn't care where data comes from (`pipeline/service/sources.py`).
+- [x] `ReplaySource`:
+  - [x] Load a session and merge all cars into one time-ordered stream. It reads the B2 clean samples (B1 car_data plus lap number and lap distance) without filtering on quality, so the scorer sees the quirks a live feed would have. By default it replays the race window: from 60 s before lap 1 to 60 s after the last lap, not the hour of cars driving to the grid.
+  - [x] Play it back at a configurable speed: 1×, 5×, or as fast as possible.
+- [x] Upsample to 50 Hz:
+  - [x] Interpolate continuous channels (speed, rpm, throttle, distance). Distance isn't interpolated across the line, where it resets.
+  - [x] Forward-fill discrete channels (gear, brake, drs).
+  - [x] Set `interpolated=true` on generated samples and pass real samples through unchanged.
+  - Samples are evenly spaced so none is more than 20 ms from the next (about 52 Hz per car). Nothing is invented across a data gap longer than 1 s.
+- [x] Add a deterministic mode for tests, with no wall clock: the same session in gives the same messages out.
+- [x] Also publish `lap_completed` events (lap time, compound, tyre life, position). Only B8 needs these.
 
 **Evidence**
-- A determinism test: identical message hashes across two runs.
-- An upsampling test: real samples are unchanged and interpolated ones are flagged.
+- A determinism test: identical message hashes across two runs. `pipeline/tests/test_replay.py`, and on a real race (Sakhir 2024): 5,937,549 messages with the same SHA-256 on both runs.
+- An upsampling test: real samples are unchanged and interpolated ones are flagged. `test_replay.py`, 10 tests.
+- Measured on Sakhir 2024 (laptop, WSL2): the replay generates about 346k messages/s when unthrottled (~330× real time), with 557 MB peak memory. At 1× it publishes 1,050 msg/s and at 5× 5,238 msg/s, with p99 under 3 ms behind schedule.
 
 ### A3. Durable stream with Redis Streams
 - [ ] Learn Redis Streams and consumer groups from the official Redis docs.
