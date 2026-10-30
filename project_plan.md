@@ -173,29 +173,39 @@ deduplicated, signed incidents to Forge. Every design choice is written down and
 
 ### A3. Durable stream with Redis Streams
 - [ ] Learn Redis Streams and consumer groups from the official Redis docs.
-- [ ] The replayer `XADD`s to `fw47:telemetry` with approximate `MAXLEN` trimming, keeping about 60 s of data.
+- [x] The replayer `XADD`s to `fw47:telemetry`, keeping about 60 s of data (`pipeline/service/streams.py`). Lap events go to `fw47:laps` (MAXLEN 10,000).
+  - Trimmed by **age**, not count: `MINID ~` set to 60 s before now on the auto-generated IDs (server milliseconds). A fixed MAXLEN would keep 60 s at 1× but only 12 s at 5×.
   - Retention is bounded on purpose, because stale telemetry is worthless: time-to-signal over completeness.
   - If the scorer is down for longer than that, the oldest samples are dropped by design. Record this in an ADR (A9).
-- [ ] The scorer reads with `XREADGROUP` in group `scorers` and `XACK`s only after its output is written (at-least-once delivery).
-- [ ] On start-up, the scorer reclaims unacknowledged entries (`XAUTOCLAIM`) before reading new ones.
+  - XADDs are batched into pipelines (200 messages or 5 ms, whichever comes first). The batching delay counts in the measured latency.
+- [x] The scorer reads with `XREADGROUP` in group `scorers` and `XACK`s only after its output is written (at-least-once delivery). Until A4 its handler doesn't score; it decodes and acknowledges.
+- [x] On start-up, the scorer first finishes its own pending entries (stable consumer name `scorer-1`), then reclaims entries other consumers have held for 10 s (`XAUTOCLAIM`), then reads new ones. Pending entries that were trimmed are acknowledged and counted as `dropped`; undecodable ones are logged, acknowledged and counted as `rejected` (a DLQ is A9 future work).
+- Found in the compose run, for A4/A7/A9:
+  - After an outage longer than the retention, the scorer resumes from the oldest *retained* entry. Entries trimmed before they were delivered are skipped **silently**, so `dropped` misses them. A7's consumer-lag metric (`XINFO GROUPS` lag) has to make this visible.
+  - With a no-op handler the scorer is CPU-bound at about 6.6k msg/s (decoding in Python). That's 6× headroom at 1× (about 1,050 msg/s), but after a 75 s outage at 5× it took about 3 minutes to catch up, scoring 60 s-old data meanwhile.
 
 **Evidence**
-- An integration test against a real Redis: publish N messages, consume N, all acknowledged.
-- A restart test: the scorer resumes from its pending entries.
+- An integration test against a real Redis: publish N, consume N, all acknowledged. `pipeline/tests/test_streams.py`, also checking the messages arrive unchanged and in order. CI runs it with a Redis service (`FW47_REQUIRE_REDIS=1`, so it can't skip there).
+- A restart test: the scorer resumes from its pending entries. Also tested: a new scorer taking over a dead one's entries, and pending entries trimmed past the retention being counted as dropped.
+- `FW47_SPEED=5 docker compose up`: the replayer published about 5,000 msg/s for Sakhir 2024, the scorer group kept up with nothing pending beyond one batch, and the stream held about 275k entries (about 55 s).
 
 ### A4. Scorer: the hot path
 _Needs `fw47_core/rules.py` from B3. Starts on the ported rules; switches to the B4 baselines and B6 thresholds at M2._
-- [ ] Keep per-car state: rolling windows, and how long each condition has held.
-- [ ] Apply the rules and baselines from `fw47_core`.
-  - Persistence is a duration in seconds, not a sample count, so behaviour is the same at 4 Hz and 50 Hz.
-- [ ] Emit deviation events to `fw47:deviations`: car, type, severity score, observed vs expected value, `t_source`, `t_scored`.
-- [ ] Load the baseline files and thresholds from config at start-up (produced by B4 and B6).
-- [ ] Record `t_scored − t_published` for every sample in a latency histogram.
-- [ ] Port the still-relevant cases from the JS tests (`anomalyDetection.test.js`, `telemetryBaseline.test.js`) to pytest.
+- [x] Keep per-car state: rolling windows, and how long each condition has held (`pipeline/service/scorer.py`, pure Python, no Redis).
+- [x] Apply the rules and baselines from `fw47_core`: B3's impossible-state rules (`engine-stall`, `gearbox-failure`, and `drs-failure` held ≥ 0.5 s) and B4's slowdown detector on the v1 baseline (z < −6 for 2 s). v2 waits for M2: it needs live knowledge of which laps were clean.
+  - Persistence is a duration in seconds, not a sample count, so behaviour is the same at 4 Hz and 50 Hz. Every sample is scored, but only real samples start, extend or end a run.
+  - Suppression from race-control context, which the replayer now publishes on the telemetry stream: slowdowns (not impossible states) are held back during SC, VSC (+15 s) and red flags, within 30 s of a blue flag to that car, and on lap 1. Held back, not cancelled: a run still going when the context clears is reported then.
+- [x] Emit deviation events to `fw47:deviations`: car, type, severity score, observed vs expected value, `t_source`, `t_scored`. One run gives `open`, then `update` each time its priority rises, then `close`.
+- [x] Load the baseline files and thresholds from config at start-up (produced by B4 and B6). The circuit comes from a `fw47:session:<key>` hash the replayer writes.
+- [x] Record `t_scored − t_published` for every sample in a latency histogram (prometheus-client, exposed in A7; the scorer also writes a summary on shutdown).
+- [x] Port the still-relevant cases from the JS tests (`anomalyDetection.test.js`, `telemetryBaseline.test.js`) to pytest. Done in B3 (`test_rules.py`); the scorer uses those rule definitions unchanged.
+- [ ] **Pit stops (decide before M1).** The stream doesn't say when a car is in the pit lane, so pit stops raise slowdowns: on Sakhir 2024, 58 of 64 alerts; on Melbourne 2024, 92 of 114 (about 3 per car per race). B4 never saw this because it counted false alerts on clean laps only.
 
 **Evidence**
-- A pytest suite for the scorer.
-- A latency histogram from a replayed race.
+- A pytest suite for the scorer: `pipeline/tests/test_scorer.py`, 14 tests, including identical alerts to `fw47_core.baseline.detect`, identical alerts at 4 Hz and 50 Hz, and each suppression rule.
+- On a real race (Sakhir 2024, suppression off): the streaming scorer gives exactly the batch detector's 203 slowdown episodes (same start and alert times), and the same alerts at 50 Hz as at 4 Hz. The logic alone scores about 220k samples/s; decoding messages is the bottleneck.
+- Melbourne 2024: `engine-stall` fired Critical on Hamilton 59 s before he stopped; Verstappen (brakes) had slowdown alerts from about a minute before his stop.
+- A latency histogram from a replayed race: _running (Sakhir 2024 at 1×, full race)_. A 1-minute smoke run at 5× gave p50 22 ms, p99 331 ms, max 497 ms: 5× is near the scorer's capacity.
 
 ### A5. Incident aggregator and delivery
 - [ ] Group deviations into incidents keyed by (session, car, type):

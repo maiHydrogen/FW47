@@ -8,6 +8,14 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    services:
+      redis:   # for the stream integration tests (pipeline/tests/test_streams.py)
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 2s --health-retries 15
+    env:
+      FW47_TEST_REDIS_URL: redis://localhost:6379/15
+      FW47_REQUIRE_REDIS: "1"   # fail, don't skip, if Redis isn't there
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

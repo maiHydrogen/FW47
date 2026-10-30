@@ -1,4 +1,5 @@
 # The streaming pipeline (Track A). `docker compose up --build` from the repo root.
+# Replay another race or speed with e.g. `FW47_SESSION_KEY=9480 FW47_SPEED=5 docker compose up`.
 x-service: &service
   build: ./pipeline
   restart: unless-stopped
@@ -24,10 +25,25 @@ services:
   replayer:
     <<: *service
     command: ["python", "-m", "service", "replayer"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      FW47_DATA_DIR: /data
+      FW47_SEASON: ${FW47_SEASON:-2024}
+      FW47_SESSION_KEY: ${FW47_SESSION_KEY:-9472}   # Sakhir 2024
+      FW47_SPEED: ${FW47_SPEED:-1}                  # 0 = as fast as possible
+    volumes:
+      - ./data:/data:ro
 
   scorer:
     <<: *service
     command: ["python", "-m", "service", "scorer"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      FW47_CONSUMER: scorer-1    # stable, so a restarted scorer finds its own pending entries
+      FW47_LATENCY_OUT: ${FW47_LATENCY_OUT:-}   # e.g. /results/latency.json, written on shutdown
+    user: "${FW47_UID:-1000}"    # so it can write to the bind-mounted results folder
+    volumes:
+      - ./bench/results:/results
 
   aggregator:
     <<: *service

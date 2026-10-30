@@ -5,5 +5,6 @@ COPY fw47_core ./fw47_core
 COPY service ./service
 RUN pip install --no-cache-dir .
 COPY baselines ./baselines
+ENV FW47_BASELINE_DIR=/app/baselines
 USER nobody
 CMD ["python", "-m", "service", "scorer"]

@@ -1,7 +1,7 @@
 """Where telemetry comes from (plan step A2).
 
-The pipeline only sees a `Source`: something to `async for` over, yielding `TelemetrySample` and
-`LapCompleted` messages in time order. `ReplaySource` plays back a recorded race; a live source (A10)
+The pipeline only sees a `Source`: something to `async for` over, yielding `TelemetrySample`, `LapCompleted`
+and `RaceControl` messages in time order. `ReplaySource` plays back a recorded race; a live source (A10)
 would implement the same interface.
 
 `ReplaySource` reads the B2 clean sample table, which is B1's car_data with lap numbers and distance into
@@ -19,7 +19,7 @@ from typing import AsyncIterator, Protocol
 import numpy as np
 import pandas as pd
 
-from service.schema import SCHEMA_VERSION, LapCompleted, Message, TelemetrySample, published
+from service.schema import SCHEMA_VERSION, LapCompleted, Message, RaceControl, TelemetrySample, published
 
 TARGET_HZ = 50
 MAX_GAP_S = 1.0        # don't invent samples across a longer outage (B2's sample gap flag uses 1 s too)
@@ -71,8 +71,8 @@ def upsample(session_key, driver_number, t, speed, rpm, throttle, gear, brake, d
 
 
 def _order(m):
-    """Stream order: time, then telemetry before lap events, then car number, so ties never depend on chance."""
-    return m.t_source, m.KIND != TelemetrySample.KIND, m.driver_number
+    """Stream order: time, then telemetry before other messages, then car number, so ties never depend on chance."""
+    return m.t_source, m.KIND != TelemetrySample.KIND, m.KIND, getattr(m, "driver_number", None) or 0
 
 
 def _seconds(dates):
@@ -119,15 +119,37 @@ class ReplaySource:
                                        _nullable(laps["position"]))]
         return sorted(out, key=_order)
 
+    def race_control(self):
+        """RaceControl messages (none if the session has no race-control table)."""
+        path = self.data_dir / "parquet" / "race_control" / f"season={self.season}" / f"{self.session_key}.parquet"
+        if not path.exists():
+            return []
+        rc = pd.read_parquet(path).sort_values("date")
+        text = lambda v: None if pd.isna(v) else str(v)
+        out = [RaceControl(SCHEMA_VERSION, self.session_key, t, None, text(r.category), text(r.flag), text(r.scope),
+                           sec, drv, text(r.message) or "")
+               for r, t, sec, drv in zip(rc.itertuples(), _seconds(rc["date"]).tolist(), _nullable(rc["sector"]),
+                                         _nullable(rc["driver_number"]))]
+        return sorted(out, key=_order)
+
+    def session_info(self):
+        """Season and circuit of the session, which the scorer needs to pick its baseline."""
+        ses = pd.read_parquet(self.data_dir / "parquet" / "sessions" / f"season={self.season}" / "sessions.parquet")
+        r = ses.loc[ses["session_key"] == self.session_key].iloc[0]
+        return {"season": self.season, "circuit_key": int(r["circuit_key"]),
+                "circuit_short_name": str(r["circuit_short_name"])}
+
     def messages(self):
         """Every message in time order, unstamped (`t_published` None). Lazy: memory stays per car."""
         s = self._read("clean", "samples")[SAMPLE_COLS].sort_values(["driver_number", "date"])
-        laps = self.laps()
+        laps, rc = self.laps(), self.race_control()
         if self.race_only:
             lap_table = self._read("clean", "laps")
             start = lap_table["date_start"].min() - np.timedelta64(RACE_MARGIN_S, "s")
             end = lap_table["date_end"].max() + np.timedelta64(RACE_MARGIN_S, "s")
             s = s[s["date"].between(start, end)]
+            t0, t1 = _seconds(pd.Series([start, end])).tolist()
+            rc = [m for m in rc if t0 <= m.t_source <= t1]
         s = s.assign(t=_seconds(s["date"]))
         cars = []
         for drv, c in s.groupby("driver_number", sort=True):
@@ -138,7 +160,7 @@ class ReplaySource:
                 cars.append(upsample(self.session_key, int(drv), **cols, max_gap_s=0))
             else:
                 cars.append(upsample(self.session_key, int(drv), **cols, hz=self.hz))
-        return heapq.merge(*cars, laps, key=_order)
+        return heapq.merge(*cars, laps, rc, key=_order)
 
     async def __aiter__(self):
         t0 = w0 = None

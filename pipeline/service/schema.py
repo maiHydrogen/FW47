@@ -55,8 +55,54 @@ class LapCompleted:
     position: int | None
 
 
-Message = TelemetrySample | LapCompleted
-_TYPES = {cls.KIND: cls for cls in (TelemetrySample, LapCompleted)}
+@dataclass(frozen=True, slots=True)
+class RaceControl:
+    """A race-control message (flags, safety car, ...). The scorer needs them as context: everyone slows
+    under a safety car, and a lapped car lifts after a blue flag."""
+    KIND = "race_control"
+
+    schema_version: int
+    session_key: int
+    t_source: float
+    t_published: float | None
+    category: str | None
+    flag: str | None
+    scope: str | None
+    sector: int | None
+    driver_number: int | None   # set for car-specific messages, e.g. blue flags
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class Deviation:
+    """A condition that has held long enough to report (scorer output, `fw47:deviations`).
+
+    One run of a condition gives an `open` event when it first qualifies, an `update` whenever its priority
+    rises, and a `close` event when it ends.
+    """
+    KIND = "deviation"
+
+    schema_version: int
+    session_key: int
+    driver_number: int
+    type: str             # "slowdown" or an impossible-state rule, e.g. "engine-stall"
+    phase: str            # open / update / close
+    lap: int | None
+    lap_distance_m: float | None
+    t_start: float        # first sample of the run
+    t_source: float       # the sample that produced this event (for close: the last sample of the run)
+    duration_s: float
+    severity: float       # 0-100 (fw47_core.baseline.severity)
+    priority: str
+    observed: float | None   # slowdown: speed at its lowest z; rules: speed
+    expected: float | None   # slowdown: expected speed there
+    z: float | None          # slowdown: lowest z of the run
+    t_published: float | None   # of the sample that produced this event
+    t_scored: float
+
+
+Message = TelemetrySample | LapCompleted | RaceControl
+_TYPES = {cls.KIND: cls for cls in (TelemetrySample, LapCompleted, RaceControl, Deviation)}
 
 
 def published(msg, t):

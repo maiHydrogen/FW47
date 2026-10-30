@@ -3,6 +3,7 @@
 import os
 import socket
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 def _env(name, default, cast=str):
@@ -24,6 +25,11 @@ class Config:
     consumer: str = field(default_factory=lambda: _env("FW47_CONSUMER", socket.gethostname()))
     # Entries another consumer has held this long are taken over at start-up (XAUTOCLAIM).
     claim_idle_ms: int = field(default_factory=lambda: _env("FW47_CLAIM_IDLE_MS", 10_000, int))
+    deviations_maxlen: int = field(default_factory=lambda: _env("FW47_DEVIATIONS_MAXLEN", 100_000, int))
+    # Scorer: B4's exported baselines and detector settings (pipeline/baselines in the repo and the image)
+    baseline_dir: str = field(default_factory=lambda: _env(
+        "FW47_BASELINE_DIR", str(Path(__file__).resolve().parents[1] / "baselines")))
+    latency_out: str = field(default_factory=lambda: _env("FW47_LATENCY_OUT", ""))
     # Replayer
     data_dir: str = field(default_factory=lambda: _env("FW47_DATA_DIR", "data"))
     season: int = field(default_factory=lambda: _env("FW47_SEASON", 2024, int))
