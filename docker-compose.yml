@@ -1,0 +1,37 @@
+# The streaming pipeline (Track A). `docker compose up --build` from the repo root.
+x-service: &service
+  build: ./pipeline
+  restart: unless-stopped
+  environment:
+    REDIS_URL: redis://redis:6379/0
+  depends_on:
+    redis:
+      condition: service_healthy
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  replayer:
+    <<: *service
+    command: ["python", "-m", "service", "replayer"]
+
+  scorer:
+    <<: *service
+    command: ["python", "-m", "service", "scorer"]
+
+  aggregator:
+    <<: *service
+    command: ["python", "-m", "service", "aggregator"]
+
+volumes:
+  redis-data:

@@ -1,0 +1,25 @@
+{
+  "version": "speed_v1",
+  "built_at": "2026-10-30T14:18:16+00:00",
+  "seasons": [
+    2023,
+    2024
+  ],
+  "circuits": 24,
+  "bin_m": 25,
+  "distance": "raw integrated lap_distance_m (B2), metres from the timing line",
+  "expected": "median speed of clean laps, interpolated between bin centres",
+  "scale": "max(1.4826 * MAD of residuals, 3.0 km/h)",
+  "v2": {
+    "laps": 5,
+    "min_laps": 3,
+    "rule": "expected * (1 + median relative residual over the car's previous clean laps)"
+  },
+  "detector": {
+    "k": 6.0,
+    "d_s": 2.0,
+    "sample_gap_s": 1.0,
+    "blue_flag_window_s": 30.0,
+    "status": "provisional until B6"
+  }
+}

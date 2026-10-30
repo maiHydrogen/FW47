@@ -1,9 +1,2 @@
-numpy==2.5.4
-pandas==2.3.3
-pyarrow==26.0.0
-matplotlib==3.11.2
-jupyter==1.1.1
-nbconvert==7.17.2
-nbformat==5.11.1
-ipykernel==7.4.0
-pytest==9.2.0
+# Pins live in pipeline/pyproject.toml. Run from the repo root.
+-e ./pipeline[analysis,test]

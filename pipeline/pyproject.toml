@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fw47"
+version = "0.1.0"
+description = "FW47 core library (cleaning, rules, baselines, labels) and the streaming pipeline services"
+requires-python = ">=3.12"
+# Pinned to the versions the notebooks and tests were run with.
+dependencies = [
+    "numpy==2.5.4",
+    "pandas==2.3.3",
+    "pyarrow==26.0.0",
+    "scipy==1.18.1",             # cKDTree in fw47_core.labels
+    "redis==8.1.0",
+    "httpx==0.28.1",
+    "prometheus-client==0.26.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.2.0"]
+analysis = [
+    "matplotlib==3.11.2",
+    "jupyter==1.1.1",
+    "nbconvert==7.17.2",
+    "nbformat==5.11.1",
+    "ipykernel==7.4.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["fw47_core*", "service*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

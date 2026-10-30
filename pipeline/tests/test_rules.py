@@ -2,15 +2,12 @@
 plus checks that the vectorised paths agree with the scalar ones."""
 
 import re
-import sys
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # until A1 makes fw47_core pip-installable
-from fw47_core.rules import (TELEMETRY_RULES, build_telemetry_baseline, detect_anomalies,  # noqa: E402
+from fw47_core.rules import (TELEMETRY_RULES, build_telemetry_baseline, detect_anomalies,
                              lap_analysis, rule_hits, summarize_telemetry_points)
 
 

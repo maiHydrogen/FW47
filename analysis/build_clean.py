@@ -12,15 +12,13 @@ Usage:
 """
 
 import argparse
-import sys
 import time
 from pathlib import Path
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "pipeline"))  # until A1 makes fw47_core pip-installable
-from fw47_core.clean import clean_session  # noqa: E402
+from fw47_core.clean import clean_session
 
 RAW = ROOT / "data" / "parquet"
 OUT = ROOT / "data" / "clean"

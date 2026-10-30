@@ -1,7 +1,7 @@
 # FW47: Telemetry Anomaly Pipeline — Project Plan v3
 
 - **Status:** Rebuild in progress. Learning project, zero cost (local Docker + a free Atlassian developer site).
-- **Plan updated:** 2026-10-29
+- **Plan updated:** 2026-10-30
 - **Maintainer:** one person for now; contributions welcome once v3 lands.
 
 ## Project history
@@ -103,6 +103,9 @@ with come from B6.
   the scorer import them. Never copy rule logic.
 - **Numbers come from scripts.** Every number in the README comes from a script or notebook in this repo,
   with the commit hash and the machine it ran on.
+- **2023–2025 only.** Regulations and data come from the 2022–2025 ground-effect era, with car data from
+  2023 (OpenF1's first season). 2026 cars are conceptually different, so 2026 data isn't used for tuning,
+  testing or benchmarks.
 - **No peeking.** Fix the held-out season, the labels and the rule for choosing the operating point before
   looking at held-out results.
 - **README follows reality.** Update its Status section at each milestone. Nothing is described as built
@@ -137,11 +140,12 @@ with come from B6.
 deduplicated, signed incidents to Forge. Every design choice is written down and every target is measured.
 
 ### A1. Repo layout and tooling
-- [ ] Add `pipeline/` (package `fw47_core/` plus `service/`), `analysis/` (notebooks), `bench/` and `docs/`. Leave the Forge app in `src/`.
-- [ ] Pin the Python dependencies in `pipeline/pyproject.toml`: pandas, pyarrow, numpy, redis, httpx, prometheus-client, pytest.
-- [ ] Install `fw47_core` in editable mode (`pip install -e pipeline`) so the notebooks import the same code.
-- [ ] Add `docker-compose.yml` with `redis` (AOF persistence on), `replayer`, `scorer` and `aggregator`, restart policy `unless-stopped`.
-- [ ] Add GitHub Actions running `pytest` and `npm test` on every PR.
+- [x] Add `pipeline/` (package `fw47_core/` plus `service/`), `analysis/` (notebooks), `bench/` and `docs/`. Leave the Forge app in `src/`.
+- [x] Pin the Python dependencies in `pipeline/pyproject.toml`: pandas, pyarrow, numpy, redis, httpx, prometheus-client, pytest, plus scipy (`labels.py` uses it). The notebook tools are the `analysis` extra, and `analysis/requirements.txt` just installs `-e ./pipeline[analysis,test]`, so pins live in one place.
+- [x] Install `fw47_core` in editable mode (`pip install -e pipeline`) so the notebooks import the same code. The `sys.path` workarounds in the scripts, tests and notebooks are gone.
+- [x] Add `docker-compose.yml` with `redis` (AOF persistence on), `replayer`, `scorer` and `aggregator`, restart policy `unless-stopped`.
+  - The three services are skeletons for now (`python -m service <role>`): they connect to Redis, log that they're ready and wait. A2–A5 replace them with the real loops.
+- [x] Add GitHub Actions running `pytest` and `npm test` on every PR (`.github/workflows/ci.yml`). Not run on GitHub yet.
 - [ ] Check that `forge deploy` still works with the new folders.
 
 **Evidence**
@@ -244,7 +248,7 @@ Confluence, Rovo and panel (needed for M3):
 - A screenshot or dump of the metrics during a load test.
 
 ### A8. Benchmarks and failure tests
-- [ ] `bench/load_test.py`: replay a 2026 race (22 cars) at 50 Hz for 10 minutes. Record ingest rate, consumer lag and p50/p95/p99 latency.
+- [ ] `bench/load_test.py`: replay a 2025 race (20 cars) at 50 Hz for 10 minutes. Record ingest rate, consumer lag and p50/p95/p99 latency.
   - This measures throughput only. Detection quality is B6's job.
 - [ ] Ramp the rate up until p95 passes 500 ms or lag keeps growing. Report that maximum as the real headroom.
 - [ ] `bench/failure_test.py`:
@@ -274,7 +278,7 @@ Confluence, Rovo and panel (needed for M3):
 ### A10 (stretch). Live source
 - [ ] Find a usable live source: OpenF1's real-time access (check whether it's paid) or fastf1's live-timing client (needs an F1 account). Check that personal use fits the terms.
 - [ ] Implement `LiveSource` behind the same interface. Compute lap distance by integrating speed from the start of each lap.
-- [ ] Run the pipeline through one session of a remaining 2026 race weekend.
+- [ ] Run the pipeline through one session of a remaining 2026 race weekend. This only tests the plumbing (streaming, latency, delivery): the baselines and thresholds come from 2023–2025 cars, so its alerts don't count as results.
 
 **Evidence**
 - A run log and incidents from a real session, or a short note on why it didn't work.
@@ -295,7 +299,8 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
 - [ ] Learn: the OpenF1 docs (endpoints and filters). If needed, do the Kaggle *Pandas* and *Data Visualization* micro-courses.
 - [x] `analysis/download.py`: cached downloader that writes Parquet tables to `data/parquet/` (git-ignored).
 - [x] Download the per-session tables for 2023–2025, and car data + location for 2024.
-  - [ ] Car data + location for 2023 and 2025, once the method works on 2024 (~2.5 hours per season).
+  - [x] Car data + location for 2023 (22 races, ~3.5 hours).
+  - [ ] Car data + location for 2025 (needed for the B6 test; download before then).
   - Loading all of 2024 at once peaks at ~6.6 GB of RAM: process one session at a time, or switch to DuckDB or Polars.
 - [x] `analysis/01_inventory.ipynb`: coverage per table, counts of races, cars, laps and samples, real sample intervals (histogram), missing data, channel values.
 - [x] Quick EDA: speed and throttle traces for a few laps per track, and the distribution of each channel.
@@ -312,7 +317,8 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
 - [x] Flag, don't drop: lap 1, in/out laps, SC/VSC/red-flag laps, deleted laps, wet running. Keep the flags as columns so the choices can be reversed.
 - [x] Run quality checks: gaps over 1 s, duplicate timestamps, physically impossible values.
 - [x] Build a data funnel table: how many samples each filter removes.
-- [ ] Re-run `analysis/build_clean.py` for 2023 and 2025 once their car data is downloaded (B1).
+- [x] Re-run `analysis/build_clean.py` for 2023: 24,461 laps, 78.6% clean, 473 clean car-hours (2024: 78.3%, 515).
+- [ ] Re-run it for 2025 once its car data is downloaded.
 
 **Evidence**
 - `analysis/02_cleaning.ipynb` with the funnel table and an example of each excluded category.
@@ -323,7 +329,7 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
 ### B3. Audit the current rules
 - [x] Port the JS rules to `pipeline/fw47_core/rules.py` with identical thresholds. Track A imports this.
   - Tests in `pipeline/tests/test_rules.py` port the JS tests and check that the vectorised versions match.
-- [x] Run them over clean laps from the tuning seasons: alerts per car-hour, by rule and by track. (2024 only so far; re-run when 2023 car data is in.)
+- [x] Run them over clean laps from the tuning seasons: alerts per car-hour, by rule and by track. (2023 and 2024: ~308 and ~314 false alerts per car-hour; engine-stall 4 of 4 on retirement laps, 0 false; gearbox-failure 1 spurious lap-1 hit in two seasons.)
 - [x] Plot where each rule fires on the track map, using the X/Y position data.
 - [x] Decide for each rule:
   - Keep rules that describe impossible states, e.g. RPM 0 while moving.
@@ -338,34 +344,43 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
   The issue panel rated 29% of clean laps Critical, so its lap-summary mode is dropped.
 
 ### B4. Contextual baselines
-- [ ] v1: for each track, bin lap distance (e.g. 25 m) and compute the median and MAD of speed over clean tuning-season laps.
-- [ ] v2: add a per-car offset learned from that car's earlier clean laps in the same race. Fall back to v1 until the car has a few clean laps.
-- [ ] Before testing, list the tracks that are new or re-profiled in 2025 (no v1 baseline) and decide how to handle them.
-- [ ] Detector:
+- [x] v1: for each track, bin lap distance (e.g. 25 m) and compute the median and MAD of speed over clean tuning-season laps.
+- [x] v2: add a per-car offset learned from that car's earlier clean laps in the same race. Fall back to v1 until the car has a few clean laps.
+- [x] Before testing, list the tracks that are new or re-profiled in 2025 (no v1 baseline) and decide how to handle them.
+  - No 2025 circuit is new. Before the B6 test, compare each 2025 race's median clean-lap length with the baseline's; more than 1% off means a re-profiled layout, which gets a same-race baseline (v2 only) instead.
+- [x] Detector:
   - Compute a robust z-score of speed against the expected value.
   - Flag when z < −k for at least d seconds.
   - Severity combines depth, duration and incident type. Write the formula down.
-- [ ] Export the baselines as files the scorer loads (A4).
+- [x] Export the baselines as files the scorer loads (A4): `pipeline/baselines/speed_v1.csv` and `.json`, from `analysis/export_baselines.py`.
+- [x] Suppress alerts within 30 s after a blue flag to that car (live race-control context; added after the false-alert analysis).
+- [x] Cross-season check: v1 from the 2023 race at each circuit, scoring 2024 (`score_b4.py --baseline-seasons 2023`). False alerts 0.26 → 0.37 per car-hour with suppression, mostly Montreal (drying track) and Monaco (procession); 62 of 64 retirement laps alerted either way. v2 removes the +0.8% year-on-year pace bias (median z +0.35 → +0.03) but not the false alerts.
+- [x] Re-exported from 2023–2024: 24 circuits (Interlagos now has a dry 2023 baseline; Imola and Shanghai come from 2024 only).
 
 **Evidence**
 - `analysis/04_baselines.ipynb`: the expected-speed band along a lap with a real incident lap overlaid.
 - Alerts per car-hour compared with the B3 rules.
+- Done (2024, leave-one-car-out): code in `pipeline/fw47_core/baseline.py`, scoring in `analysis/score_b4.py`.
+  At the provisional setting (v2, z < −6 for 2 s) there are 0.84 false alerts per car-hour, and 0.27 with blue-flag
+  suppression, against ~314 for the B3 rules. The detector still fires on 66 of the 72 retirement laps. 73% of the
+  remaining false alerts were lapped cars under blue flags. Severity formula: score = 100 × (min(1, −z_min/20) +
+  min(1, duration/10 s)) / 2, with impossible-state rules always Critical. Its bands need recalibrating in B6.
 
 ### B5. Ground-truth labels
-- [ ] Mechanical retirements for 2023–2025, from Jolpica `status` and OpenF1 `dnf` flags. B1 found that Jolpica mostly says just "Retired", without a cause. Decide how to separate mechanical failures from crashes (e.g. race-control messages, whether the car was damaged in contact) and write the rule down.
-- [ ] Cars stopping on track, from race-control messages that name a car and from track-status changes.
-  - Keep this class separate from mechanical failures so the easy cases don't inflate recall.
+- [x] Mechanical retirements for 2023–2025. Jolpica and OpenF1 give no cause, so the cause comes from the Wikipedia race-classification tables (`analysis/fetch_causes.py`, raw pages cached). Classes are mechanical / ambiguous / crash / excluded, with the rule written in `analysis/labelling_rule.md`.
+- [x] Cars stopping on track. Race control names a stopped car only 4 times in three seasons, so stop place (track vs pit lane) comes from telemetry, with the pit lane learned from each race's pit stops. Mechanical, ambiguous and crash are kept as separate classes.
 - [ ] For each incident, record:
-  - The onset, marked by hand from plots using a written rule.
-  - The time the car stopped or retired.
-- [ ] Negatives: clean laps from cars that finished without problems.
-- [ ] Commit `analysis/labels.csv`, with the source of each label, **before** any tuning.
-- [ ] Expect only a few dozen mechanical failures. Plan to report confidence intervals, not single numbers.
+  - [x] The time the car stopped (2023–2024; the 2025 rows once its car data is in).
+  - [x] A proposed onset from the written rule: the start of the final departure from the car's *own* previous laps (not the B4 field baseline, so B6 isn't circular).
+  - [ ] **Review each onset by hand** from the plots in `analysis/05_labels.ipynb`: fill in `onset_reviewed` (`auto` / timestamp / `none`).
+- [x] Negatives: clean laps of cars that finished (`negative_laps`): ~16,000 laps (~400 car-hours) per season.
+- [ ] Commit `analysis/labels.csv`, with the source of each label, **before** any tuning (after the onset review).
+- [x] Expect only a few dozen mechanical failures, and plan for confidence intervals: 39 in 2023–2024 and 12 in 2025, of which only ~15 in 2023–2024 show anything in public telemetry (12 stopped on track, 3 limped in). 24 of the 27 that retired in the pit lane looked normal until pit entry.
 
 **Evidence**
-- `labels.csv`.
-- The written labelling rule.
-- Event counts per season and class.
+- `analysis/labels.csv` (182 rows, one per non-finisher, each with its source link).
+- `analysis/labelling_rule.md`.
+- `analysis/05_labels.ipynb`: event counts per season and class, stop places, lead times, a review plot per mechanical/ambiguous event, and negatives.
 
 ### B6. Tune, choose, evaluate once
 - [ ] On the tuning seasons, sweep k and d. For each pair compute:
@@ -383,7 +398,7 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
 - [ ] Hand the chosen (k, d) and the baselines to the scorer config.
 
 **Evidence**
-- `analysis/05_evaluation.ipynb`.
+- `analysis/06_evaluation.ipynb`.
 - The trade-off plot.
 - The held-out results table with confidence intervals.
 - The error-analysis table.
@@ -422,18 +437,18 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
   - Lap-time trend vs the stint's best lap.
   - Gaps to the cars ahead and behind.
   - Track status, track temperature, rainfall, track.
-- [ ] Split by season, never mixing laps from one race across splits: OpenF1 starts in 2023, so tune with cross-validation grouped by race on 2023–2024, and test once on 2025. Check 2026 races separately as out-of-distribution data.
+- [ ] Split by season, never mixing laps from one race across splits: OpenF1 starts in 2023, so tune with cross-validation grouped by race on 2023–2024, and test once on 2025. No 2026 data: the 2026 cars are built to different regulations (see Working agreements).
 - [ ] Baselines: the compound-window table in `src/services/pitStrategy.js`, and a logistic regression.
 - [ ] Metrics and explanation:
   - PR-AUC (pit laps are rare).
   - A calibration plot.
   - How many laps early or late the predicted pit lap is.
   - SHAP for explanations.
-- [ ] Write the caveats into the results: the model imitates strategists' decisions rather than finding the optimal lap, and the 2026 cars are different.
+- [ ] Write the caveats into the results: the model imitates strategists' decisions rather than finding the optimal lap, and it only applies to the 2022–2025 ground-effect cars.
 - [ ] Serve the model: score each car on `lap_completed` (A2), send the probabilities to Forge, and have Rovo's `predict-pit-window` read them.
 
 **Evidence**
-- `analysis/06_pit_model.ipynb`: a results table against both baselines, a calibration plot, a SHAP summary and the 2026 result.
+- `analysis/06_pit_model.ipynb`: a results table against both baselines, a calibration plot and a SHAP summary.
 
 ---
 
