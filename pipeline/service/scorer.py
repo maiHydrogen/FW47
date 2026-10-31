@@ -17,6 +17,9 @@ Slowdowns, not impossible states, are suppressed from race-control context: duri
 start). Suppression delays an alert rather than cancelling it: a run that is still going once the context
 clears is reported then.
 
+At `SessionEnded` every run still open is closed, and the message is passed on. With `watermark_s` set, a
+`Watermark` follows the samples every `watermark_s` of source time, so the aggregator sees time pass.
+
 Not handled yet: pit stops. The stream doesn't say when a car is in the pit lane, so a pit stop can raise a
 slowdown; B6 decides how to handle it (and between v1 and v2) at M2.
 """
@@ -32,7 +35,7 @@ import pandas as pd
 
 from fw47_core.baseline import PRIORITY_BANDS, severity
 from fw47_core.rules import TELEMETRY_RULES
-from service.schema import SCHEMA_VERSION, Deviation, LapCompleted, RaceControl, TelemetrySample
+from service.schema import SCHEMA_VERSION, Deviation, LapCompleted, RaceControl, SessionEnded, TelemetrySample, Watermark
 
 IMPOSSIBLE_HOLD_S = {"engine-stall": 0.0, "gearbox-failure": 0.0, "drs-failure": 0.5}
 RULES = [r for r in TELEMETRY_RULES if r.incident_type in IMPOSSIBLE_HOLD_S]
@@ -90,6 +93,7 @@ class Session:
     vsc: bool = False
     vsc_until: float = -math.inf  # VSC ending + 15 s
     red: bool = False
+    watermark: float = -math.inf  # t_source of the last Watermark
 
 
 class Scorer:
@@ -98,10 +102,12 @@ class Scorer:
     curves: {circuit_key: (centre_m, expected_kmh, scale_kmh)}; params: detector settings.
     suppress: apply the race-control and lap-1 suppression (off only to compare with the batch detector).
     clock: returns the time used for `t_scored` (injectable for tests).
+    watermark_s: emit a `Watermark` this often (source time); None for none.
     """
 
-    def __init__(self, curves, params, suppress=True, clock=time.time):
+    def __init__(self, curves, params, suppress=True, clock=time.time, watermark_s=None):
         self.curves, self.params, self.suppress, self.clock = curves, params, suppress, clock
+        self.watermark_s = watermark_s
         self.sessions = {}
 
     def start_session(self, session_key, circuit_key):
@@ -111,14 +117,27 @@ class Scorer:
         return session_key in self.sessions
 
     def process(self, msg):
-        """Update state with one message; returns the Deviation events it produced (often none)."""
+        """Update state with one message; returns what it produced for the deviation stream (often nothing):
+        Deviations, and Watermark / SessionEnded messages."""
         if isinstance(msg, LapCompleted):
             return []
         ses = self.sessions[msg.session_key]
         if isinstance(msg, RaceControl):
             self._race_control(ses, msg)
             return []
-        return self._sample(ses, msg)
+        if isinstance(msg, SessionEnded):
+            return self._end(msg)
+        out = self._sample(ses, msg)
+        if self.watermark_s is not None and msg.t_source - ses.watermark >= self.watermark_s:
+            ses.watermark = msg.t_source
+            out.append(Watermark(SCHEMA_VERSION, msg.session_key, msg.t_source, msg.t_published))
+        return out
+
+    def _end(self, msg):
+        out = [self._event(msg.session_key, drv, cond, run, "close", None, None, msg.t_published)
+               for drv, car in sorted(self.sessions.pop(msg.session_key).cars.items())
+               for cond, run in car.runs.items() if run.fired]
+        return out + [msg]
 
     # ------------------------------------------------------------ context
 
@@ -169,7 +188,7 @@ class Scorer:
             run = car.runs.get(cond)
             if run is not None and (gap or not on):
                 if run.fired:
-                    out.append(self._event(s, cond, run, "close", t=run.last))
+                    out.append(self._event(s.session_key, s.driver_number, cond, run, "close", None, None, s.t_published))
                 del car.runs[cond]
                 run = None
             if not on:
@@ -189,10 +208,11 @@ class Scorer:
             score, prio = self._severity(cond, run)
             if not run.fired:
                 run.fired, run.rank, run.lap, run.dist = True, _RANK[prio], s.lap, s.lap_distance_m
-                out.append(self._event(s, cond, run, "open"))
+                out.append(self._event(s.session_key, s.driver_number, cond, run, "open", s.lap, s.lap_distance_m, s.t_published))
             elif _RANK[prio] > run.rank:
                 run.rank = _RANK[prio]
-                out.append(self._event(s, cond, run, "update"))
+                out.append(self._event(s.session_key, s.driver_number, cond, run, "update", s.lap, s.lap_distance_m,
+                                       s.t_published))
         return out
 
     def _severity(self, cond, run):
@@ -202,11 +222,11 @@ class Scorer:
             score, prio = severity(0.0, 0.0, cond)
         return float(score), str(prio)
 
-    def _event(self, s, cond, run, phase, t=None):
+    def _event(self, session_key, drv, cond, run, phase, lap, dist, t_published):
+        """A Deviation for `run`. Its t_source is the run's last sample; a close reports where the run was opened."""
         score, prio = self._severity(cond, run)
-        slow = cond == "slowdown"
-        return Deviation(SCHEMA_VERSION, s.session_key, s.driver_number, cond, phase,
-                         run.lap if phase == "close" else s.lap, run.dist if phase == "close" else s.lap_distance_m,
-                         run.start, s.t_source if t is None else t, run.last - run.start, score, prio,
+        slow, close = cond == "slowdown", phase == "close"
+        return Deviation(SCHEMA_VERSION, session_key, drv, cond, phase, run.lap if close else lap,
+                         run.dist if close else dist, run.start, run.last, run.last - run.start, score, prio,
                          run.observed, run.expected if slow else None, run.z_min if slow else None,
-                         s.t_published, self.clock())
+                         t_published, self.clock())

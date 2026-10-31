@@ -1,7 +1,7 @@
 """Where telemetry comes from (plan step A2).
 
 The pipeline only sees a `Source`: something to `async for` over, yielding `TelemetrySample`, `LapCompleted`
-and `RaceControl` messages in time order. `ReplaySource` plays back a recorded race; a live source (A10)
+and `RaceControl` messages in time order, then one `SessionEnded`. `ReplaySource` plays back a recorded race; a live source (A10)
 would implement the same interface.
 
 `ReplaySource` reads the B2 clean sample table, which is B1's car_data with lap numbers and distance into
@@ -19,7 +19,7 @@ from typing import AsyncIterator, Protocol
 import numpy as np
 import pandas as pd
 
-from service.schema import SCHEMA_VERSION, LapCompleted, Message, RaceControl, TelemetrySample, published
+from service.schema import SCHEMA_VERSION, LapCompleted, Message, RaceControl, SessionEnded, TelemetrySample, published
 
 TARGET_HZ = 50
 MAX_GAP_S = 1.0        # don't invent samples across a longer outage (B2's sample gap flag uses 1 s too)
@@ -140,7 +140,7 @@ class ReplaySource:
                 "circuit_short_name": str(r["circuit_short_name"])}
 
     def messages(self):
-        """Every message in time order, unstamped (`t_published` None). Lazy: memory stays per car."""
+        """Every message in time order, then `SessionEnded`; unstamped (`t_published` None). Lazy: memory stays per car."""
         s = self._read("clean", "samples")[SAMPLE_COLS].sort_values(["driver_number", "date"])
         laps, rc = self.laps(), self.race_control()
         if self.race_only:
@@ -160,7 +160,15 @@ class ReplaySource:
                 cars.append(upsample(self.session_key, int(drv), **cols, max_gap_s=0))
             else:
                 cars.append(upsample(self.session_key, int(drv), **cols, hz=self.hz))
-        return heapq.merge(*cars, laps, rc, key=_order)
+        return self._ended(heapq.merge(*cars, laps, rc, key=_order))
+
+    def _ended(self, msgs):
+        t = None
+        for m in msgs:
+            t = m.t_source
+            yield m
+        if t is not None:
+            yield SessionEnded(SCHEMA_VERSION, self.session_key, t, None)
 
     async def __aiter__(self):
         t0 = w0 = None

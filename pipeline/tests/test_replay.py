@@ -123,7 +123,8 @@ def test_replay_merges_cars_in_time_order(data_dir):
     msgs = _collect(ReplaySource(data_dir, 2024, 1, deterministic=True))
     t = [m.t_source for m in msgs]
     assert t == sorted(t)
-    assert {m.driver_number for m in msgs} == {1, 44}
+    assert msgs[-1].KIND == "session_ended" and msgs[-1].t_source == t[-2]
+    assert {m.driver_number for m in msgs[:-1]} == {1, 44}
     assert all(m.t_published == m.t_source for m in msgs)
     assert sum(not m.interpolated for m in msgs if m.KIND == "telemetry") == 2400
 

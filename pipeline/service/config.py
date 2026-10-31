@@ -30,6 +30,19 @@ class Config:
     baseline_dir: str = field(default_factory=lambda: _env(
         "FW47_BASELINE_DIR", str(Path(__file__).resolve().parents[1] / "baselines")))
     latency_out: str = field(default_factory=lambda: _env("FW47_LATENCY_OUT", ""))
+    # Aggregator: groups deviations into incidents (A5); see service.incidents
+    aggregator_group: str = field(default_factory=lambda: _env("FW47_AGGREGATOR_GROUP", "aggregators"))
+    incident_types: tuple = field(default_factory=lambda: _env(
+        "FW47_INCIDENT_TYPES", ("engine-stall", "gearbox-failure", "drs-failure"), lambda v: tuple(v.split(","))))
+    incident_cooldown_s: float = field(default_factory=lambda: _env("FW47_INCIDENT_COOLDOWN_S", 60.0, float))
+    outbox_stream: str = field(default_factory=lambda: _env("FW47_OUTBOX_STREAM", "fw47:outbox"))
+    outbox_maxlen: int = field(default_factory=lambda: _env("FW47_OUTBOX_MAXLEN", 100_000, int))
+    # Delivery to the Forge webtrigger; with no URL, events wait in the outbox
+    delivery_group: str = field(default_factory=lambda: _env("FW47_DELIVERY_GROUP", "delivery"))
+    dlq_stream: str = field(default_factory=lambda: _env("FW47_DLQ_STREAM", "fw47:dlq"))
+    webhook_url: str = field(default_factory=lambda: _env("FW47_WEBHOOK_URL", ""))
+    webhook_secret: str = field(default_factory=lambda: _env("FW47_WEBHOOK_SECRET", ""))
+    delivery_max_attempts: int = field(default_factory=lambda: _env("FW47_DELIVERY_MAX_ATTEMPTS", 6, int))
     # Replayer
     data_dir: str = field(default_factory=lambda: _env("FW47_DATA_DIR", "data"))
     season: int = field(default_factory=lambda: _env("FW47_SEASON", 2024, int))

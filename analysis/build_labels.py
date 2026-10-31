@@ -77,6 +77,9 @@ def timing(season, session_key, cars):
         if car.empty:
             out[drv] = dict(timing_note="no car data")
             continue
+        if car["lap_number"].isna().all():
+            out[drv] = dict(timing_note="car data but no laps")
+            continue
         stop = lb.stop_time(car)
         last = car.loc[stop] if stop is not None else car.loc[car[car["speed"] > lb.STOP_KMH].index[-1]]
         lap = int(last["lap_number"]) if pd.notna(last["lap_number"]) else int(car["lap_number"].max())

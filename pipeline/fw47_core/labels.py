@@ -162,7 +162,7 @@ def near(points, x, y, tol_m=NEAR_PIT_M):
 
 # ---------------------------------------------------------------- onset
 
-REF_LAPS = 3            # the car's own last clean laps before the incident lap
+REF_LAPS = 3            # the car's own last clean laps before the searched laps (see reference_laps)
 SPEED_DROP = 0.10       # slower than every reference lap by more than this fraction
 FULL_THROTTLE = 90      # a stretch every reference lap took at >= this throttle ...
 LIFT = 20               # ... now at <= this
@@ -172,6 +172,13 @@ CRAWL_KMH = 30          # crawling: below this where the reference is above ...
 CRAWL_REF_KMH = 100     # ... this (counts even under a safety car)
 JOIN_S = 5.0            # departures closer than this belong to one run
 BIN_M = 25
+
+
+def reference_laps(clean_laps, incident_lap):
+    """The clean laps a reference may use: those before the laps `onset` searches (the incident lap and the one
+    before it). A lap that is searched can't also be a reference: "slow" means slower than every reference lap, so
+    a car limping on the lap before the incident would be compared with itself and look normal."""
+    return [lap for lap in clean_laps if lap < incident_lap - 1]
 
 
 def reference(car, laps, n=REF_LAPS, min_laps=None):
@@ -231,7 +238,7 @@ def onset(car, stop_idx, incident_lap, laps_before, pit_mask=None, neutral_mask=
     pm = np.zeros(len(upto), bool) if pit_mask is None else np.asarray(pit_mask.loc[upto.index], bool)
     nm = np.zeros(len(upto), bool) if neutral_mask is None else np.asarray(neutral_mask.loc[upto.index], bool)
     upto, pm, nm = upto[keep], pm[keep], nm[keep]
-    ref = reference(car, laps_before)
+    ref = reference(car, reference_laps(laps_before, incident_lap))
     in_ref = reference(car, in_laps, min_laps=1) if len(in_laps) else None
     r = departures(upto, ref, in_ref)
     r.loc[nm, ["slow", "lift"]] = False

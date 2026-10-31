@@ -101,8 +101,47 @@ class Deviation:
     t_scored: float
 
 
-Message = TelemetrySample | LapCompleted | RaceControl
-_TYPES = {cls.KIND: cls for cls in (TelemetrySample, LapCompleted, RaceControl, Deviation)}
+@dataclass(frozen=True, slots=True)
+class SessionEnded:
+    """The source has nothing more for this session. The scorer closes its open runs and passes it on, and
+    the aggregator closes the session's incidents."""
+    KIND = "session_ended"
+
+    schema_version: int
+    session_key: int
+    t_source: float       # the last message of the session
+    t_published: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class Watermark:
+    """Scorer to aggregator: every sample of the session up to `t_source` has been scored. Lets the aggregator
+    see time pass (and close quiet incidents) between deviations, in source time."""
+    KIND = "watermark"
+
+    schema_version: int
+    session_key: int
+    t_source: float
+    t_published: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentEvent:
+    """An event for the Forge webtrigger (aggregator output, `fw47:outbox`). `body` is the JSON payload sent
+    as-is; the other fields are for routing and logs."""
+    KIND = "incident_event"
+
+    schema_version: int
+    event_id: str         # idempotency key: the same incident change always gets the same ID
+    event: str            # opened / escalated / closed / session_closed
+    session_key: int
+    t_source: float
+    body: str
+
+
+Message = TelemetrySample | LapCompleted | RaceControl | SessionEnded
+_TYPES = {cls.KIND: cls for cls in (TelemetrySample, LapCompleted, RaceControl, Deviation, SessionEnded, Watermark,
+                                    IncidentEvent)}
 
 
 def published(msg, t):

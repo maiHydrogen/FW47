@@ -5,7 +5,8 @@ import pandas as pd
 import pytest
 
 from fw47_core.baseline import detect
-from service.schema import SCHEMA_VERSION, Deviation, RaceControl, TelemetrySample, from_fields, to_fields
+from service.schema import (SCHEMA_VERSION, Deviation, RaceControl, SessionEnded, TelemetrySample, Watermark,
+                            from_fields, to_fields)
 from service.scorer import Params, Scorer, load_baselines
 from service.sources import upsample
 
@@ -129,6 +130,21 @@ def test_lap_one_is_suppressed():
 def test_circuit_without_baseline_still_runs_impossible_state_rules():
     ev = run([sample(0.0, speed=50), sample(1.0, speed=50), sample(3.0, speed=150, rpm=0)], circuit=999)
     assert {e.type for e in ev} == {"engine-stall"}
+
+
+def test_session_end_closes_open_runs_and_is_passed_on():
+    end = SessionEnded(SCHEMA_VERSION, 1, 5.0, 5.0)
+    ev = run([sample(t, speed=120) for t in np.arange(1, 5, 0.25)] + [sample(4.0, drv=1, rpm=0), end])
+    closes = [e for e in ev if isinstance(e, Deviation) and e.phase == "close"]
+    assert [(e.driver_number, e.type, e.t_source) for e in closes] == [(1, "engine-stall", 4.0), (44, "slowdown", 4.75)]
+    assert ev[-1] == end
+
+
+def test_watermarks_follow_source_time():
+    sc = Scorer(CURVE, PARAMS, clock=lambda: 0.0, watermark_s=1.0)
+    sc.start_session(1, 1)
+    out = [e for t in np.arange(0, 3.01, 0.25) for e in sc.process(sample(t))]
+    assert [e.t_source for e in out if isinstance(e, Watermark)] == [0.0, 1.0, 2.0, 3.0]
 
 
 def test_loads_the_exported_b4_baselines():

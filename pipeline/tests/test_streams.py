@@ -106,6 +106,24 @@ def test_publish_n_consume_n_all_acknowledged(cfg):
     run(go())
 
 
+def test_a_gap_in_the_source_doesnt_hold_back_buffered_messages(cfg):
+    async def go():
+        client = await _client()
+        seen = []
+
+        async def gappy():
+            for m in samples(3):
+                yield replace(m, t_published=time.time())
+            await asyncio.sleep(0.5)                       # all cars silent: the 3 must not wait for this
+            seen.append(await client.xlen(cfg.telemetry_stream))
+            for m in samples(2, t0=1709391930.0):
+                yield replace(m, t_published=time.time())
+        stats = await publish(gappy(), client, cfg)
+        assert seen == [3] and stats.telemetry == 5 and await client.xlen(cfg.telemetry_stream) == 5
+        await client.aclose()
+    run(go())
+
+
 async def crash_after_reading(client, cfg, name):
     """A consumer that reads a batch and dies before acknowledging it."""
     async def handle(batch):

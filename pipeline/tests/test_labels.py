@@ -43,10 +43,11 @@ def test_stop_time_none_without_a_long_rest():
     assert lb.stop_time(car([200] * 40 + [0] * 20 + [200] * 40)) is None
 
 
-def _with_reference(incident):
-    """Three clean reference laps at 200 km/h, then the incident lap."""
-    ref = pd.concat([car([200] * 100).assign(lap_number=k, clean=True) for k in (7, 8, 9)])
-    ref["date"] = ref["date"] - pd.Timedelta(minutes=5)
+def _with_reference(incident, lap9=200):
+    """Three clean reference laps at 200 km/h, a clean lap 9 at `lap9` running straight into the incident lap."""
+    ref = pd.concat([car([200] * 100).assign(lap_number=k, clean=True, date=lambda d, k=k: d["date"] - pd.Timedelta(minutes=10 - k))
+                     for k in (6, 7, 8)] + [car([lap9] * 100).assign(lap_number=9, clean=True,
+                                                                      date=lambda d: d["date"] - pd.Timedelta(seconds=25))])
     return pd.concat([ref, incident], ignore_index=True).sort_values("date").reset_index(drop=True)
 
 
@@ -55,14 +56,22 @@ def test_onset_is_start_of_final_departure():
     v = [200] * 38 + [150] * 2 + [200] * 30 + list(np.linspace(150, 0, 30))
     c = _with_reference(car(v))
     stop = c.index[-1]
-    on, why = lb.onset(c, stop, 10, [7, 8, 9])
+    on, why = lb.onset(c, stop, 10, [6, 7, 8, 9])
     assert c.loc[on, "date"] == c[c["lap_number"] == 10]["date"].iloc[70]
     assert "slow" in why
 
 
 def test_onset_none_when_car_looked_normal():
     c = _with_reference(car([200] * 100))
-    assert lb.onset(c, c.index[-1], 10, [7, 8, 9])[0] is None
+    assert lb.onset(c, c.index[-1], 10, [6, 7, 8, 9])[0] is None
+
+
+def test_a_slow_lap_before_the_incident_is_searched_not_used_as_reference():
+    # lap 9 is clean (no gaps, normal length) but already 30% slow: the failure started there
+    c = _with_reference(car(list(np.linspace(140, 0, 100))), lap9=140)
+    assert lb.reference_laps([6, 7, 8, 9], 10) == [6, 7, 8]
+    on, why = lb.onset(c, c.index[-1], 10, [6, 7, 8, 9])
+    assert c.loc[on, "lap_number"] == 9 and why == "slow"
 
 
 def test_neutralised_period_hides_slow_but_not_crawl():
@@ -70,7 +79,7 @@ def test_neutralised_period_hides_slow_but_not_crawl():
     inc = car(v)
     c = _with_reference(inc)
     neut = pd.Series(c["date"] >= inc["date"].iloc[40], index=c.index)   # SC from sample 40 on
-    on, why = lb.onset(c, c.index[-1], 10, [7, 8, 9], neutral_mask=neut)
+    on, why = lb.onset(c, c.index[-1], 10, [6, 7, 8, 9], neutral_mask=neut)
     assert c.loc[on, "date"] == inc["date"].iloc[70] and why.startswith("crawl")
 
 

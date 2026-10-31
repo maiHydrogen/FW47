@@ -48,6 +48,12 @@ services:
   aggregator:
     <<: *service
     command: ["python", "-m", "service", "aggregator"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      FW47_CONSUMER: aggregator-1
+      # Forge webtrigger (A6). Unset: incident events wait in fw47:outbox
+      FW47_WEBHOOK_URL: ${FW47_WEBHOOK_URL:-}
+      FW47_WEBHOOK_SECRET: ${FW47_WEBHOOK_SECRET:-}
 
 volumes:
   redis-data:

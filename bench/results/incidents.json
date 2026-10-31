@@ -1,0 +1,46 @@
+[
+ {
+  "race": "2024 Sakhir (9472)",
+  "rule_hits": {
+   "slowdown": 64
+  },
+  "delivered": {
+   "session_closed": 1
+  },
+  "delivered_incidents_by_type": {},
+  "all_types": {
+   "opened": 49,
+   "escalated": 47,
+   "closed": 49,
+   "session_closed": 1
+  },
+  "all_types_incidents_by_type": {
+   "slowdown": 49
+  }
+ },
+ {
+  "race": "2024 Melbourne (9488)",
+  "rule_hits": {
+   "slowdown": 113,
+   "engine-stall": 1
+  },
+  "delivered": {
+   "opened": 1,
+   "closed": 1,
+   "session_closed": 1
+  },
+  "delivered_incidents_by_type": {
+   "engine-stall": 1
+  },
+  "all_types": {
+   "opened": 57,
+   "escalated": 42,
+   "closed": 57,
+   "session_closed": 1
+  },
+  "all_types_incidents_by_type": {
+   "slowdown": 56,
+   "engine-stall": 1
+  }
+ }
+]

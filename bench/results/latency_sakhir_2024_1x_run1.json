@@ -1,0 +1,72 @@
+{
+ "samples": 5936420,
+ "deviations": 185,
+ "consumer": "ConsumerStats(processed=5936485, reclaimed=0, dropped=0, rejected=0)",
+ "baseline": "speed_v1",
+ "latency_ms": {
+  "p50": 25.312,
+  "p95": 28.796,
+  "p99": 30.69,
+  "p99_9": 782.961,
+  "max": 1917.515
+ },
+ "share_under_500ms": 0.9986476698077292,
+ "histogram": [
+  {
+   "le_ms": 0.5,
+   "count": 0
+  },
+  {
+   "le_ms": 1.0,
+   "count": 0
+  },
+  {
+   "le_ms": 2.0,
+   "count": 0
+  },
+  {
+   "le_ms": 5.0,
+   "count": 261
+  },
+  {
+   "le_ms": 10.0,
+   "count": 77500
+  },
+  {
+   "le_ms": 25.0,
+   "count": 2618482
+  },
+  {
+   "le_ms": 50.0,
+   "count": 3225464
+  },
+  {
+   "le_ms": 100.0,
+   "count": 436
+  },
+  {
+   "le_ms": 250.0,
+   "count": 2914
+  },
+  {
+   "le_ms": 500.0,
+   "count": 3335
+  },
+  {
+   "le_ms": 1000.0,
+   "count": 3724
+  },
+  {
+   "le_ms": 2500.0,
+   "count": 4304
+  },
+  {
+   "le_ms": 5000.0,
+   "count": 0
+  },
+  {
+   "le_ms": null,
+   "count": 0
+  }
+ ]
+}

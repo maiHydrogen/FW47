@@ -199,27 +199,42 @@ _Needs `fw47_core/rules.py` from B3. Starts on the ported rules; switches to the
 - [x] Load the baseline files and thresholds from config at start-up (produced by B4 and B6). The circuit comes from a `fw47:session:<key>` hash the replayer writes.
 - [x] Record `t_scored − t_published` for every sample in a latency histogram (prometheus-client, exposed in A7; the scorer also writes a summary on shutdown).
 - [x] Port the still-relevant cases from the JS tests (`anomalyDetection.test.js`, `telemetryBaseline.test.js`) to pytest. Done in B3 (`test_rules.py`); the scorer uses those rule definitions unchanged.
-- [ ] **Pit stops (decide before M1).** The stream doesn't say when a car is in the pit lane, so pit stops raise slowdowns: on Sakhir 2024, 58 of 64 alerts; on Melbourne 2024, 92 of 114 (about 3 per car per race). B4 never saw this because it counted false alerts on clean laps only.
+- [x] **Pit stops: left for B6 (decided 2026-10-30).** The stream doesn't say when a car is in the pit lane, so pit stops raise slowdowns: on Sakhir 2024, 58 of 64 alerts; on Melbourne 2024, 92 of 114 (about 3 per car per race). B4 never saw this because it counted false alerts on clean laps only. Until B6 settles it, A5 files Jira issues only from the impossible-state rules (which is what M1 asks for: "the ported rules"); slowdowns stay on `fw47:deviations` but aren't delivered.
 
 **Evidence**
 - A pytest suite for the scorer: `pipeline/tests/test_scorer.py`, 14 tests, including identical alerts to `fw47_core.baseline.detect`, identical alerts at 4 Hz and 50 Hz, and each suppression rule.
 - On a real race (Sakhir 2024, suppression off): the streaming scorer gives exactly the batch detector's 203 slowdown episodes (same start and alert times), and the same alerts at 50 Hz as at 4 Hz. The logic alone scores about 220k samples/s; decoding messages is the bottleneck.
 - Melbourne 2024: `engine-stall` fired Critical on Hamilton 59 s before he stopped; Verstappen (brakes) had slowdown alerts from about a minute before his stop.
-- A latency histogram from a replayed race: _running (Sakhir 2024 at 1×, full race)_. A 1-minute smoke run at 5× gave p50 22 ms, p99 331 ms, max 497 ms: 5× is near the scorer's capacity.
+- A latency histogram from a replayed race, Sakhir 2024 at 1× for the full race (5,936,420 samples, none dropped or rejected; `bench/results/latency_sakhir_2024_1x_run1.json`): p50 25 ms, p95 29 ms, p99 31 ms, but p99.9 783 ms and max 1.9 s; 99.86% under 500 ms. That meets the target (p95 < 500 ms) by a wide margin; the tail is two isolated pauses of 1–2 s, at 21:58 and 22:04 UTC, about 8,000 samples in all. Latency was ~30 ms the rest of the race. Redis logs show nothing unusual then (AOF rewrites every ~80 s all race caused no spikes) and nothing else was running on the machine, so a pause of the WSL2/Docker VM is the likely cause, but this run can't tell which side stalled. The scorer now also records the publish part of each latency (from the Redis entry ID) and the time of each stall.
+- A second full race (`bench/results/latency_sakhir_2024_1x_run2_disturbed.json`) ran across two laptop sleeps, a test proctoring app and the 2025 download, so its percentiles aren't evidence (p95 30 ms, but p99 362 ms). Its stall log found two things:
+  - **A publisher bug, now fixed:** about 30 stalls of exactly 19 samples, delayed ~1.0–1.25 s before Redis received them. `publish()` flushed a batch only when the next message arrived, so when the source went quiet (every car silent for a second) the last buffered samples waited for the gap to end. The flush now has its own 5 ms timer (`test_a_gap_in_the_source_doesnt_hold_back_buffered_messages`).
+  - **Scorer pauses under host load:** 1–4 s stalls of thousands of samples, all on the consume side, all while the machine was busy (the proctoring app, the download, label rebuilds). That's the host, not the pipeline, but the evidence run needs a quiet, awake machine.
+- Still to do: one clean full-race run at 1× with the flush fix, on an idle machine with sleep disabled.
+- A 1-minute smoke run at 5× gave p50 22 ms, p99 331 ms, max 497 ms: 5× is near the scorer's capacity.
 
 ### A5. Incident aggregator and delivery
-- [ ] Group deviations into incidents keyed by (session, car, type):
-  - [ ] Open an incident on the first deviation.
-  - [ ] Only ever raise its severity while it's open.
-  - [ ] Close it after a quiet cooldown.
-- [ ] Set the incident ID to a deterministic hash of (session, car, type, opened-at). It's the idempotency key everywhere downstream.
-- [ ] Keep open incidents ranked by severity.
-- [ ] Send `opened` / `escalated` / `closed` / `session_closed` events to the Forge webtrigger, signed with HMAC-SHA256 over timestamp + body.
-- [ ] Retry 429 and 5xx responses with exponential backoff and jitter, respecting `Retry-After`. After K failures, move the event to `fw47:dlq`.
+- [x] Group deviations into incidents keyed by (session, car, type) (`pipeline/service/incidents.py`):
+  - [x] Open an incident on the first deviation.
+  - [x] Only ever raise its severity while it's open (`escalated` when its priority rises).
+  - [x] Close it after a quiet cooldown: 60 s of source time with none of its runs open. Time comes from the stream itself (deviations, plus a `Watermark` the scorer emits every second), so grouping is the same at any replay speed. When the replay ends, a `SessionEnded` message closes the scorer's open runs and the session's incidents, then sends `session_closed`.
+  - Only the impossible-state types become incidents for now; slowdowns are counted and ignored until B6 settles pit stops (see A4). `FW47_INCIDENT_TYPES` changes this.
+- [x] Set the incident ID to a deterministic hash of (session, car, type, opened-at), opened-at being the start of its first run. Event IDs are built from it (`<id>:opened`, `<id>:escalated:<n>`, `<id>:closed`), so a redelivered deviation or a replayed race produces the same IDs.
+- [x] Keep open incidents ranked by severity: the sorted set `fw47:incidents:ranked:<session>` (for Rovo's `get-ranked-incidents`, A6). Open incidents are also kept in `fw47:incidents:open` and reloaded when the aggregator restarts. State and events are written in one MULTI transaction before the deviations are acknowledged.
+- [x] Send `opened` / `escalated` / `closed` / `session_closed` events to the Forge webtrigger, signed with HMAC-SHA256 over timestamp + body (`pipeline/service/delivery.py`). The aggregator writes events to `fw47:outbox`; a delivery consumer sends them one at a time, in order. Headers: `X-FW47-Timestamp`, `X-FW47-Signature: sha256=<hex of HMAC(secret, "<timestamp>." + body)>`, `X-FW47-Event-Id`. Each attempt is signed afresh. With no `FW47_WEBHOOK_URL`, events wait in the outbox.
+- [x] Retry 429, 5xx, timeouts and connection errors with exponential backoff and full jitter (0.5 s doubling, capped at 30 s), waiting at least `Retry-After`. Other 4xx fail at once. After 6 attempts the event moves to `fw47:dlq` with the reason, and delivery carries on.
+- Notes for A6: the receiver must treat `X-FW47-Event-Id` as the idempotency key. If an `opened` was dead-lettered, a later `escalated` or `closed` for that incident arrives with no issue behind it, so the receiver should create the issue then.
 
 **Evidence**
-- A table, for one replayed race, of raw rule hits vs incidents created.
-- Tests for retry/backoff and for the dead-letter path.
+- A table of raw rule hits vs incidents created (`bench/incidents.py`, results in `bench/results/incidents.json`). "Rule hits" are runs that alerted; "delivered" is what reaches Jira with the current types:
+
+  | Race | Rule hits | Incidents, all types | Incidents delivered |
+  |---|---|---|---|
+  | 2024 Sakhir | 64 slowdown | 49 slowdown (47 escalations) | 0 |
+  | 2024 Melbourne | 113 slowdown, 1 engine-stall | 56 slowdown, 1 engine-stall (42 escalations) | 1 (Hamilton's engine stall) |
+
+  Grouping alone cuts slowdown hits by a quarter to a half. Most slowdown incidents escalate because a run opens at High and becomes Critical as it goes on (a pit stop does exactly that).
+- End to end in Docker (Sakhir 2024 at 1×, the second latency run in A4): the aggregator read all 5,840 messages of `fw47:deviations` (the scorer's deviations and watermarks), ignored the 185 slowdowns, and wrote one event to `fw47:outbox`: `session_closed` at the end of the race. Sakhir 2024 had no impossible-state alert, so nothing else was due; Melbourne 2024 would open one incident (Hamilton).
+- Tests for retry/backoff and for the dead-letter path: `pipeline/tests/test_delivery.py` (signature, backoff and its cap, `Retry-After` in seconds and as a date, transport errors, giving up, no retry on other 4xx, and the dead-letter path against Redis). Grouping: `pipeline/tests/test_incidents.py`, 9 tests (cooldown, rejoining, escalation, same input gives the same IDs, duplicate deliveries, session end, ranking, restart).
 
 ### A6. Forge app: hardened integration
 
@@ -312,7 +327,7 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
 - [x] `analysis/download.py`: cached downloader that writes Parquet tables to `data/parquet/` (git-ignored).
 - [x] Download the per-session tables for 2023–2025, and car data + location for 2024.
   - [x] Car data + location for 2023 (22 races, ~3.5 hours).
-  - [ ] Car data + location for 2025 (needed for the B6 test; download before then).
+  - [x] Car data + location for 2025 (24 races, done 2026-10-31 after several OpenF1 live-session lockouts).
   - Loading all of 2024 at once peaks at ~6.6 GB of RAM: process one session at a time, or switch to DuckDB or Polars.
 - [x] `analysis/01_inventory.ipynb`: coverage per table, counts of races, cars, laps and samples, real sample intervals (histogram), missing data, channel values.
 - [x] Quick EDA: speed and throttle traces for a few laps per track, and the distribution of each channel.
@@ -330,7 +345,7 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
 - [x] Run quality checks: gaps over 1 s, duplicate timestamps, physically impossible values.
 - [x] Build a data funnel table: how many samples each filter removes.
 - [x] Re-run `analysis/build_clean.py` for 2023: 24,461 laps, 78.6% clean, 473 clean car-hours (2024: 78.3%, 515).
-- [ ] Re-run it for 2025 once its car data is downloaded.
+- [x] Re-run it for 2025: 26,246 laps, 80.0% clean, 513 clean car-hours.
 
 **Evidence**
 - `analysis/02_cleaning.ipynb` with the funnel table and an example of each excluded category.
@@ -382,9 +397,13 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
 - [x] Mechanical retirements for 2023–2025. Jolpica and OpenF1 give no cause, so the cause comes from the Wikipedia race-classification tables (`analysis/fetch_causes.py`, raw pages cached). Classes are mechanical / ambiguous / crash / excluded, with the rule written in `analysis/labelling_rule.md`.
 - [x] Cars stopping on track. Race control names a stopped car only 4 times in three seasons, so stop place (track vs pit lane) comes from telemetry, with the pit lane learned from each race's pit stops. Mechanical, ambiguous and crash are kept as separate classes.
 - [ ] For each incident, record:
-  - [x] The time the car stopped (2023–2024; the 2025 rows once its car data is in).
+  - [x] The time the car stopped (2023–2025; all 15 mechanical/ambiguous rows of 2025 have one).
   - [x] A proposed onset from the written rule: the start of the final departure from the car's *own* previous laps (not the B4 field baseline, so B6 isn't circular).
   - [ ] **Review each onset by hand** from the plots in `analysis/05_labels.ipynb`: fill in `onset_reviewed` (`auto` / timestamp / `none`).
+    - [x] First pass for 2023–2024 (Claude, 2026-10-31): 14 `auto`, 4 timestamps, 29 `none`, a note on every non-`auto` row. Visible mechanical events: 16 of 39 (12 on track, 4 limped in).
+    - [ ] Confirm it. Two judgement calls are flagged in the notes: six "pit-entry cases" (the only departure is in the last seconds before the pit entry; set to `none`) and Verstappen, Melbourne 2024 (a timestamp without reference laps).
+    - [ ] 2025 rows (11 of 15 have a proposed onset): review under the same rule before the B6 test run, without looking at detector output.
+  - The review found a flaw in the onset rule, fixed before any tuning: the lap before the incident was both searched and a reference lap, so a car that limped for its last full lap was compared with itself. 17 of the 47 proposals changed (change note in `analysis/labelling_rule.md`). A smaller weakness is left open: for a car that stopped in the pit lane, one slow in-lap (e.g. under a red flag) suppresses `slow` over the whole lap; the review judged those cars against their racing laps instead.
 - [x] Negatives: clean laps of cars that finished (`negative_laps`): ~16,000 laps (~400 car-hours) per season.
 - [ ] Commit `analysis/labels.csv`, with the source of each label, **before** any tuning (after the onset review).
 - [x] Expect only a few dozen mechanical failures, and plan for confidence intervals: 39 in 2023–2024 and 12 in 2025, of which only ~15 in 2023–2024 show anything in public telemetry (12 stopped on track, 3 limped in). 24 of the 27 that retired in the pit lane looked normal until pit entry.
@@ -407,6 +426,7 @@ intervals, session results; 2023 onwards) and **Jolpica** (results with status).
   - [ ] Add bootstrap confidence intervals by resampling races.
   - [ ] Compare against the B3 fixed rules on the same races.
 - [ ] Error analysis: look at every miss and the top false alerts, and group them by cause.
+- [ ] Decide how the scorer handles pit stops (left open in A4). Count false alerts on every lap, pit laps included, not only clean laps as B4 did. The likely fix is to add x,y to the stream and mask slowdowns inside B5's pit-lane geometry (`labels.in_pit_lane`), so the detector and the labels use the same rule. Then let A5 deliver slowdowns.
 - [ ] Hand the chosen (k, d) and the baselines to the scorer config.
 
 **Evidence**

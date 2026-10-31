@@ -1,6 +1,6 @@
 """Redis Streams plumbing (plan step A3): publish a source, consume with a group.
 
-Publishing: telemetry and race-control messages go to `fw47:telemetry`, lap events to `fw47:laps`. Telemetry is trimmed by age, not
+Publishing: telemetry, race-control and session-ended messages go to `fw47:telemetry`, lap events to `fw47:laps`. Telemetry is trimmed by age, not
 count: each XADD drops entries older than `retention_s` of wall clock (MINID on the auto-generated IDs, which
 are server milliseconds). A fixed MAXLEN would keep 60 s at 1x but only 12 s at 5x. Trimming is approximate
 (`~`), so Redis drops whole internal nodes and keeps a little more than `retention_s`.
@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 import redis
 
-from service.schema import LapCompleted, RaceControl, from_fields, to_fields
+from service.schema import LapCompleted, RaceControl, TelemetrySample, from_fields, to_fields
 
 log = logging.getLogger("fw47.streams")
 BATCH = 200          # messages per pipeline round trip
@@ -39,11 +39,13 @@ class PublishStats:
 async def publish(source, client, cfg, batch=BATCH, flush_s=FLUSH_S, stats=None):
     """XADD every message of `source`, batched into pipelines. Returns PublishStats.
 
-    A batch is sent when it holds `batch` messages or its first message was published `flush_s` ago, so
-    batching adds at most ~5 ms of latency, and that delay is inside `t_scored - t_published`.
+    A batch is sent when it holds `batch` messages or its first message has waited `flush_s`, whether or not
+    another message arrives: a gap in the source (all cars silent for a second) mustn't hold the last samples
+    back. So batching adds at most ~5 ms of latency, and that delay is inside `t_scored - t_published`.
     """
     stats = stats or PublishStats()
     buf = []
+    first_at = 0.0     # when the oldest buffered message was taken (monotonic)
 
     async def flush():
         pipe = client.pipeline(transaction=False)
@@ -56,16 +58,35 @@ async def publish(source, client, cfg, batch=BATCH, flush_s=FLUSH_S, stats=None)
                 pipe.xadd(cfg.telemetry_stream, to_fields(m), minid=minid, approximate=True)
                 if isinstance(m, RaceControl):
                     stats.race_control += 1
-                else:
+                elif isinstance(m, TelemetrySample):
                     stats.telemetry += 1
         await pipe.execute()
         stats.flushes += 1
         buf.clear()
 
-    async for msg in source:
-        buf.append(msg)
-        if len(buf) >= batch or (msg.t_published or 0) - (buf[0].t_published or 0) >= flush_s:
-            await flush()
+    it = aiter(source)
+    nxt = None
+    try:
+        while True:
+            nxt = nxt or asyncio.ensure_future(anext(it))
+            wait = max(0.0, first_at + flush_s - time.monotonic()) if buf else None
+            done, _ = await asyncio.wait({nxt}, timeout=wait)
+            if not done:                 # nothing new within flush_s: send what's waiting
+                await flush()
+                continue
+            try:
+                msg = nxt.result()
+            except StopAsyncIteration:
+                break
+            nxt = None
+            if not buf:
+                first_at = time.monotonic()
+            buf.append(msg)
+            if len(buf) >= batch or time.monotonic() - first_at >= flush_s:
+                await flush()
+    finally:
+        if nxt is not None and not nxt.done():
+            nxt.cancel()
     if buf:
         await flush()
     return stats

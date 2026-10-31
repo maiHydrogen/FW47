@@ -45,8 +45,10 @@ the source for "stopped on track".
 **The onset is the first observable symptom: the start of the car's final departure from how it drove the same
 stretch on its own previous laps, which continues until the stop.**
 
-The car is compared with **itself**, not with the field: the reference is its own last 3 clean laps before the
-incident lap, per 25 m of lap distance. This is deliberate. The B4 detector compares speed with the field, so an onset
+The car is compared with **itself**, not with the field. Departures are searched for on the incident lap (the lap it
+stopped on) and the lap before it; the reference is its own last 3 clean laps **before those two**, per 25 m of lap
+distance. A searched lap is never a reference: a car that starts limping on the lap before the incident would
+otherwise be compared with itself and look normal. This is deliberate. The B4 detector compares speed with the field, so an onset
 defined by the field baseline would make B6's time-to-signal measure the detector against itself.
 
 A sample departs if any of these holds:
@@ -102,3 +104,15 @@ Clean laps (B2) of cars that finished the race: classified with a time, a gap or
   decline before that isn't captured; note it in `review_note` when the plot shows one.
 - **Mechanical retirements are few** (39 in 2023–2024, 12 in 2025, and fewer with a visible onset), so B6 reports
   confidence intervals, not single numbers.
+
+## Changes
+
+- **2026-10-31, before any tuning: the reference laps no longer include the lap before the incident.** That lap was
+  both searched and part of the reference, so `slow` could never fire on it, and a car that limped for its last full
+  lap (still a clean lap: no gaps, normal length) looked normal. Piastri, Sakhir 2023, lost 20 s on his last full lap
+  and crossed the line at 50 km/h, yet matched his "reference" there. Found during the first onset review; the fix
+  changed 17 of the 47 mechanical and ambiguous proposals in the tuning seasons (and 7 crash rows): 8 pit-lane
+  retirements that had shown "no departure" now have an onset, 4 on-track onsets moved earlier, and 5 moved between
+  "no departure" and "no departure before the stop". A
+  second check (dropping reference laps slower than 107% of the car's median lap) changed nothing more and wasn't
+  adopted. Code: `reference_laps` in `labels.py`; test: `test_a_slow_lap_before_the_incident_is_searched_not_used_as_reference`.
