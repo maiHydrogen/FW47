@@ -46,49 +46,46 @@ async def publish(source, client, cfg, batch=BATCH, flush_s=FLUSH_S, stats=None)
     stats = stats or PublishStats()
     buf = []
     first_at = 0.0     # when the oldest buffered message was taken (monotonic)
+    lock = asyncio.Lock()
 
     async def flush():
-        pipe = client.pipeline(transaction=False)
-        minid = int(time.time() * 1000 - cfg.retention_s * 1000)
-        for m in buf:
-            if isinstance(m, LapCompleted):
-                pipe.xadd(cfg.laps_stream, to_fields(m), maxlen=cfg.laps_maxlen, approximate=True)
-                stats.laps += 1
-            else:   # race control shares the telemetry stream, so the scorer sees it in order with the samples
-                pipe.xadd(cfg.telemetry_stream, to_fields(m), minid=minid, approximate=True)
-                if isinstance(m, RaceControl):
-                    stats.race_control += 1
-                elif isinstance(m, TelemetrySample):
-                    stats.telemetry += 1
-        await pipe.execute()
-        stats.flushes += 1
-        buf.clear()
+        async with lock:            # the ticker and the main loop both flush; keep batches in order
+            if not buf:
+                return
+            msgs = buf[:]
+            buf.clear()
+            pipe = client.pipeline(transaction=False)
+            minid = int(time.time() * 1000 - cfg.retention_s * 1000)
+            for m in msgs:
+                if isinstance(m, LapCompleted):
+                    pipe.xadd(cfg.laps_stream, to_fields(m), maxlen=cfg.laps_maxlen, approximate=True)
+                    stats.laps += 1
+                else:   # race control shares the telemetry stream, so the scorer sees it in order with the samples
+                    pipe.xadd(cfg.telemetry_stream, to_fields(m), minid=minid, approximate=True)
+                    if isinstance(m, RaceControl):
+                        stats.race_control += 1
+                    elif isinstance(m, TelemetrySample):
+                        stats.telemetry += 1
+            await pipe.execute()
+            stats.flushes += 1
 
-    it = aiter(source)
-    nxt = None
-    try:
+    async def ticker():             # flushes a batch that has waited flush_s while the source is quiet
         while True:
-            nxt = nxt or asyncio.ensure_future(anext(it))
-            wait = max(0.0, first_at + flush_s - time.monotonic()) if buf else None
-            done, _ = await asyncio.wait({nxt}, timeout=wait)
-            if not done:                 # nothing new within flush_s: send what's waiting
+            await asyncio.sleep(flush_s)
+            if buf and time.monotonic() - first_at >= flush_s:
                 await flush()
-                continue
-            try:
-                msg = nxt.result()
-            except StopAsyncIteration:
-                break
-            nxt = None
+
+    tick = asyncio.create_task(ticker())
+    try:
+        async for msg in source:
             if not buf:
                 first_at = time.monotonic()
             buf.append(msg)
             if len(buf) >= batch or time.monotonic() - first_at >= flush_s:
                 await flush()
     finally:
-        if nxt is not None and not nxt.done():
-            nxt.cancel()
-    if buf:
-        await flush()
+        tick.cancel()
+    await flush()
     return stats
 
 

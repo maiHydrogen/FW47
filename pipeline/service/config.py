@@ -43,6 +43,8 @@ class Config:
     webhook_url: str = field(default_factory=lambda: _env("FW47_WEBHOOK_URL", ""))
     webhook_secret: str = field(default_factory=lambda: _env("FW47_WEBHOOK_SECRET", ""))
     delivery_max_attempts: int = field(default_factory=lambda: _env("FW47_DELIVERY_MAX_ATTEMPTS", 6, int))
+    # /metrics and /healthz (A7)
+    metrics_port: int = field(default_factory=lambda: _env("FW47_METRICS_PORT", 9100, int))
     # Replayer
     data_dir: str = field(default_factory=lambda: _env("FW47_DATA_DIR", "data"))
     season: int = field(default_factory=lambda: _env("FW47_SEASON", 2024, int))

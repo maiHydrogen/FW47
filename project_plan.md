@@ -207,7 +207,7 @@ _Needs `fw47_core/rules.py` from B3. Starts on the ported rules; switches to the
 - Melbourne 2024: `engine-stall` fired Critical on Hamilton 59 s before he stopped; Verstappen (brakes) had slowdown alerts from about a minute before his stop.
 - A latency histogram from a replayed race, Sakhir 2024 at 1× for the full race (5,936,420 samples, none dropped or rejected; `bench/results/latency_sakhir_2024_1x_run1.json`): p50 25 ms, p95 29 ms, p99 31 ms, but p99.9 783 ms and max 1.9 s; 99.86% under 500 ms. That meets the target (p95 < 500 ms) by a wide margin; the tail is two isolated pauses of 1–2 s, at 21:58 and 22:04 UTC, about 8,000 samples in all. Latency was ~30 ms the rest of the race. Redis logs show nothing unusual then (AOF rewrites every ~80 s all race caused no spikes) and nothing else was running on the machine, so a pause of the WSL2/Docker VM is the likely cause, but this run can't tell which side stalled. The scorer now also records the publish part of each latency (from the Redis entry ID) and the time of each stall.
 - A second full race (`bench/results/latency_sakhir_2024_1x_run2_disturbed.json`) ran across two laptop sleeps, a test proctoring app and the 2025 download, so its percentiles aren't evidence (p95 30 ms, but p99 362 ms). Its stall log found two things:
-  - **A publisher bug, now fixed:** about 30 stalls of exactly 19 samples, delayed ~1.0–1.25 s before Redis received them. `publish()` flushed a batch only when the next message arrived, so when the source went quiet (every car silent for a second) the last buffered samples waited for the gap to end. The flush now has its own 5 ms timer (`test_a_gap_in_the_source_doesnt_hold_back_buffered_messages`).
+  - **A publisher bug, now fixed:** about 30 stalls of exactly 19 samples, delayed ~1.0–1.25 s before Redis received them. `publish()` flushed a batch only when the next message arrived, so when the source went quiet (every car silent for a second) the last buffered samples waited for the gap to end. The flush now has its own timer: a background ticker flushes a batch that has waited 5 ms (`test_a_gap_in_the_source_doesnt_hold_back_buffered_messages`). A first version waited on every message with a timeout, which halved publish throughput (72k to 39k msg/s) and made the replayer bursty enough to stall the scorer at 5× (p99 5.5 s for ~30 s); the ticker runs at 103k msg/s, and 90 s at 5× then stayed at p99 39–215 ms.
   - **Scorer pauses under host load:** 1–4 s stalls of thousands of samples, all on the consume side, all while the machine was busy (the proctoring app, the download, label rebuilds). That's the host, not the pipeline, but the evidence run needs a quiet, awake machine.
 - Still to do: one clean full-race run at 1× with the flush fix, on an idle machine with sleep disabled.
 - A 1-minute smoke run at 5× gave p50 22 ms, p99 331 ms, max 497 ms: 5× is near the scorer's capacity.
@@ -268,11 +268,14 @@ Confluence, Rovo and panel (needed for M3):
 - Screenshots: the issue with its SOP link, the Confluence session report, and Rovo answering "what are the worst open incidents?".
 
 ### A7. Observability
-- [ ] Add `/metrics` (prometheus-client) on the scorer and aggregator: samples in, deviations out, open incidents, consumer lag, latency histogram, delivery failures.
-- [ ] Add `/healthz` on each service, wired to Docker health checks.
+- [x] Add `/metrics` (prometheus-client) on the scorer and aggregator (and the replayer): samples in, deviations out, open incidents, consumer lag, latency histogram, delivery failures (`pipeline/service/observe.py`; host ports 9101 scorer, 9102 aggregator, 9103 replayer).
+  - Counters are read from the services' own stats objects at scrape time, so nothing is counted twice: `fw47_scorer_consumer_{processed,reclaimed,dropped,rejected}_total`, `fw47_scorer_deviations_by_kind_total{key="<type>:<phase>"}`, `fw47_aggregator_events_by_kind_total`, `fw47_aggregator_open_incidents`, `fw47_delivery_{delivered,retries,dead_lettered}_total`, `fw47_replayer_published_*_total`, plus `fw47_scorer_latency_seconds` (histogram).
+  - `fw47_stream_lag` and `fw47_stream_pending` per (stream, group) from `XINFO GROUPS`, every 5 s. Lag that keeps growing is the scorer falling behind; `dropped` rising is the silent skip after an outage longer than the retention (A3).
+- [x] Add `/healthz` on each service, wired to Docker health checks: 503 when the event loop hasn't beaten for 10 s or Redis is unreachable; Docker restarts the container after 3 failures.
 
 **Evidence**
-- A screenshot or dump of the metrics during a load test.
+- Tests: `pipeline/tests/test_observe.py` (metrics read at scrape time, health failing on a stuck loop and on Redis down, lag and pending against Redis).
+- A dump during a 5× replay (Sakhir 2024, 60 s in): all four containers `healthy`; `fw47_stream_lag{stream="fw47:telemetry",group="scorers"} 50`, pending 0; 306,763 messages scored, 307,014 published; the aggregator's lag 0 with 3 slowdowns ignored. To repeat during the A8 load test.
 
 ### A8. Benchmarks and failure tests
 - [ ] `bench/load_test.py`: replay a 2025 race (20 cars) at 50 Hz for 10 minutes. Record ingest rate, consumer lag and p50/p95/p99 latency.

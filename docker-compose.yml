@@ -8,6 +8,13 @@ x-service: &service
   depends_on:
     redis:
       condition: service_healthy
+  # /healthz on FW47_METRICS_PORT (9100): fails when the event loop is stuck or Redis is unreachable (A7)
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9100/healthz', timeout=2)"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 20s
 
 services:
   redis:
@@ -33,6 +40,8 @@ services:
       FW47_SPEED: ${FW47_SPEED:-1}                  # 0 = as fast as possible
     volumes:
       - ./data:/data:ro
+    ports:
+      - "9103:9100"   # /metrics, /healthz
 
   scorer:
     <<: *service
@@ -44,6 +53,8 @@ services:
     user: "${FW47_UID:-1000}"    # so it can write to the bind-mounted results folder
     volumes:
       - ./bench/results:/results
+    ports:
+      - "9101:9100"
 
   aggregator:
     <<: *service
@@ -54,6 +65,8 @@ services:
       # Forge webtrigger (A6). Unset: incident events wait in fw47:outbox
       FW47_WEBHOOK_URL: ${FW47_WEBHOOK_URL:-}
       FW47_WEBHOOK_SECRET: ${FW47_WEBHOOK_SECRET:-}
+    ports:
+      - "9102:9100"
 
 volumes:
   redis-data:

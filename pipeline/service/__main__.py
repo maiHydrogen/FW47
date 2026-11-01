@@ -11,6 +11,8 @@
   acknowledging. With FW47_WEBHOOK_URL set it also delivers the outbox to the Forge webtrigger
   (`service.delivery`); failed events go to `fw47:dlq`.
 
+Every role serves /metrics and /healthz on FW47_METRICS_PORT (`service.observe`).
+
 Incident state in Redis: `fw47:incidents:open` (hash, ID -> JSON; reloaded on start-up),
 `fw47:incidents:ranked:<session>` (sorted set of open incident IDs by severity) and `fw47:incident:<id>`
 (JSON, kept for 7 days after closing).
@@ -23,17 +25,20 @@ import json
 import logging
 import signal
 import time
+from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
 import numpy as np
-from prometheus_client import Histogram
+from prometheus_client import REGISTRY, Histogram
 
 import redis.asyncio as aioredis
 
 from service.config import Config
 from service.delivery import DeliveryStats, Sender, delivery_handler
 from service.incidents import Aggregator, Incident
+from service.observe import Health, StatsCollector, heartbeat, serve, watch_lag
 from service.schema import Deviation, TelemetrySample, to_fields
 from service.scorer import Scorer, load_baselines
 from service.sources import ReplaySource
@@ -46,6 +51,13 @@ WATERMARK_S = 1.0
 OPEN_INCIDENTS = "fw47:incidents:open"
 CLOSED_TTL_S = 7 * 24 * 3600
 LATENCY_BUCKETS_S = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
+
+
+@dataclass
+class Counts:
+    by_kind: Counter = field(default_factory=Counter)
+
+
 LATENCY = Histogram("fw47_scorer_latency_seconds", "t_scored - t_published per telemetry sample",
                     buckets=LATENCY_BUCKETS_S)
 
@@ -71,11 +83,12 @@ async def every(seconds, stop, report):
             report()
 
 
-async def replayer(cfg, client, stop):
+async def replayer(cfg, client, stop, obs):
     src = ReplaySource(cfg.data_dir, cfg.season, cfg.session_key, speed=cfg.speed)
     await client.hset(f"fw47:session:{cfg.session_key}", mapping=src.session_info())   # read by the scorer
     log.info("replaying %s session %s at %s", cfg.season, cfg.session_key, f"{cfg.speed}x" if cfg.speed else "full speed")
     stats, t0 = PublishStats(), time.monotonic()
+    obs.add("fw47_replayer_published", stats)
     report = asyncio.create_task(every(STATS_EVERY_S, stop, lambda: log.info(
         "published %d telemetry, %d laps (%.0f msg/s)", stats.telemetry, stats.laps,
         stats.telemetry / (time.monotonic() - t0))))
@@ -89,12 +102,13 @@ async def replayer(cfg, client, stop):
     report.cancel()
 
 
-async def scorer(cfg, client, stop):
+async def scorer(cfg, client, stop, obs):
     curves, params = load_baselines(cfg.baseline_dir)
     sc = Scorer(curves, params, watermark_s=WATERMARK_S)
     latencies, publish_part = array.array("d"), array.array("d")
     slow = []   # (t_scored, latency, publish part) of samples over SLOW_S
-    deviations = 0
+    deviations, by_kind = 0, Counts()
+    obs.add("fw47_scorer_deviations", by_kind)
 
     async def handle(batch):
         nonlocal deviations
@@ -122,6 +136,7 @@ async def scorer(cfg, client, stop):
             await pipe.execute()
             out = [d for d in out if isinstance(d, Deviation)]
             deviations += len(out)
+            by_kind.by_kind.update(f"{d.type}:{d.phase}" for d in out)
             for d in out:
                 log.info("deviation %s car %s %s %s (%.0f, %s) lap %s", d.phase, d.driver_number, d.type,
                          f"{d.duration_s:.1f}s", d.severity, d.priority, d.lap)
@@ -133,6 +148,7 @@ async def scorer(cfg, client, stop):
                      c.stats, deviations, *p)
 
     c = Consumer(client, cfg.telemetry_stream, cfg.scorer_group, cfg.consumer, handle, claim_idle_ms=cfg.claim_idle_ms)
+    obs.add("fw47_scorer_consumer", c.stats)
     log.info("consuming %s as %s/%s; baseline %s for %d circuits, k=%s d=%ss", cfg.telemetry_stream,
              cfg.scorer_group, cfg.consumer, params.version, len(curves), params.k, params.d_s)
     rep = asyncio.create_task(every(STATS_EVERY_S, stop, report))
@@ -183,10 +199,15 @@ def write_latency(path, lat, pub, slow, stats, deviations, params):
     log.info("latency summary written to %s", path)
 
 
-async def aggregator(cfg, client, stop):
+async def aggregator(cfg, client, stop, obs):
     agg = Aggregator(cfg.incident_cooldown_s, cfg.incident_types)
     agg.restore(Incident.from_json(v) for v in (await client.hgetall(OPEN_INCIDENTS)).values())
-    counts = {"opened": 0, "escalated": 0, "closed": 0, "session_closed": 0}
+    events = Counts(Counter({"opened": 0, "escalated": 0, "closed": 0, "session_closed": 0}))
+    dstats = DeliveryStats()
+    obs.add("fw47_aggregator_events", events)
+    obs.add("fw47_aggregator_open_incidents", lambda: len(agg.open), "gauge", "Open incidents")
+    obs.add("fw47_aggregator_ignored_deviations", lambda: agg.ignored, "gauge", "Deviations of types that aren't incidents")
+    obs.add("fw47_delivery", dstats)
 
     async def handle(batch):
         out = [e for _, m in batch for e in agg.process(m)]
@@ -208,14 +229,15 @@ async def aggregator(cfg, client, stop):
             pipe.xadd(cfg.outbox_stream, to_fields(e), maxlen=cfg.outbox_maxlen, approximate=True)
         await pipe.execute()
         for e in out:
-            counts[e.event] += 1
+            events.by_kind[e.event] += 1
             log.info("incident %s %s", e.event, e.event_id)
 
     c = Consumer(client, cfg.deviation_stream, cfg.aggregator_group, cfg.consumer, handle,
                  claim_idle_ms=cfg.claim_idle_ms)
+    obs.add("fw47_aggregator_consumer", c.stats)
     log.info("consuming %s as %s/%s; %d open incidents restored; types %s, cooldown %s s", cfg.deviation_stream,
              cfg.aggregator_group, cfg.consumer, len(agg.open), ",".join(cfg.incident_types), cfg.incident_cooldown_s)
-    tasks, http, dstats, d = [asyncio.create_task(c.run(stop))], None, DeliveryStats(), None
+    tasks, http, d = [asyncio.create_task(c.run(stop))], None, None
     if cfg.webhook_url:
         http = httpx.AsyncClient(timeout=10)
         sender = Sender(http, cfg.webhook_url, cfg.webhook_secret, max_attempts=cfg.delivery_max_attempts)
@@ -228,7 +250,7 @@ async def aggregator(cfg, client, stop):
 
     def report():
         log.info("%s; %d open, %d deviations ignored (type), events %s%s", c.stats, len(agg.open), agg.ignored,
-                 counts, f"; {dstats}" if d else "")
+                 dict(events.by_kind), f"; {dstats}" if d else "")
 
     rep = asyncio.create_task(every(STATS_EVERY_S, stop, report))
     try:
@@ -243,6 +265,13 @@ async def aggregator(cfg, client, stop):
 ROLES = {"replayer": replayer, "scorer": scorer, "aggregator": aggregator}
 
 
+def watched_streams(role, cfg):
+    """(stream, group) pairs whose lag the role reports."""
+    return {"scorer": [(cfg.telemetry_stream, cfg.scorer_group)],
+            "aggregator": [(cfg.deviation_stream, cfg.aggregator_group), (cfg.outbox_stream, cfg.delivery_group)],
+            }.get(role, [])
+
+
 async def main_async(role):
     cfg = Config()
     client = await connect(cfg.redis_url)
@@ -251,9 +280,17 @@ async def main_async(role):
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
+    health, obs = Health(), StatsCollector()
+    REGISTRY.register(obs)
+    server = serve(cfg.metrics_port, health)
+    side = [asyncio.create_task(heartbeat(health, stop)),
+            asyncio.create_task(watch_lag(client, health, stop, watched_streams(role, cfg)))]
     try:
-        await ROLES[role](cfg, client, stop)
+        await ROLES[role](cfg, client, stop, obs)
     finally:
+        for t in side:
+            t.cancel()
+        server.shutdown()
         await client.aclose()
     log.info("stopped")
 
